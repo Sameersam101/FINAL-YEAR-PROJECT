@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>355307496609-n98t8btb8q7gc6qren8fh71g69hdofqu.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.355307496609-n98t8btb8q7gc6qren8fh71g69hdofqu</string>
+	<key>API_KEY</key>
+	<string>AIzaSyCVUDBCIJ_wzY_ZdFOvgUUmhGPb207XAqY</string>
+	<key>GCM_SENDER_ID</key>
+	<string>355307496609</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>arthik.sathi.mainapp.arthikapp</string>
+	<key>PROJECT_ID</key>
+	<string>arthik-sathi</string>
+	<key>STORAGE_BUCKET</key>
+	<string>arthik-sathi.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:355307496609:ios:591e710bf63d8139463ce0</string>
+</dict>
+</plist>

@@ -1,0 +1,82 @@
+{
+  "project_info": {
+    "project_number": "355307496609",
+    "project_id": "arthik-sathi",
+    "storage_bucket": "arthik-sathi.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:355307496609:android:a846ecbbb35ec766463ce0",
+        "android_client_info": {
+          "package_name": "arthik.finance.app.newarthik"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "355307496609-rk768d1jlvfb9amdp4j2hjo91rbc8eb4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBo_Mxz8S7a0GGzZM6bIAUwFXC5CXR_lgY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "355307496609-rk768d1jlvfb9amdp4j2hjo91rbc8eb4.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "355307496609-1obb21j3dvn1g8pn9iffjoml9r750r29.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "arthiksathi.com.arthiksathi"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:355307496609:android:6e23929da6af0ca7463ce0",
+        "android_client_info": {
+          "package_name": "arthik.sathi.mainapp.arthikapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "355307496609-rk768d1jlvfb9amdp4j2hjo91rbc8eb4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBo_Mxz8S7a0GGzZM6bIAUwFXC5CXR_lgY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "355307496609-rk768d1jlvfb9amdp4j2hjo91rbc8eb4.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "355307496609-1obb21j3dvn1g8pn9iffjoml9r750r29.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "arthiksathi.com.arthiksathi"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
