@@ -235,8 +235,6 @@ class _SellerPageState extends State<SellerPage> {
                               _showSnackBar('Error adding supplier: $e');
                             }
                           }
-                        } else {
-                          _showSnackBar('Please fill all required fields correctly');
                         }
                       },
                       style: ElevatedButton.styleFrom(
@@ -376,7 +374,7 @@ class _SellerPageState extends State<SellerPage> {
 
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: Color(0xFF10B981),));
   }
 
   double _parseAmount(dynamic value) {
@@ -439,7 +437,7 @@ class _SellerPageState extends State<SellerPage> {
         Navigator.pushReplacement(context, _createRoute(const Transactionpage()));
         break;
       case 4:
-        Navigator.pushReplacement(context, _createRoute(const Analyticspage()));
+        Navigator.pushReplacement(context, _createRoute(const AnalyticsPage()));
         break;
     }
   }
@@ -735,20 +733,20 @@ class _SellerPageState extends State<SellerPage> {
         elevation: 6,
         child: const Icon(Icons.add_rounded, color: Colors.white, size: 30),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: const Color(0xFF1E3A8A),
-        unselectedItemColor: const Color(0xFF6B7280),
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.inventory_2_rounded), label: 'Inventory'),
-          BottomNavigationBarItem(icon: Icon(Icons.qr_code_scanner_rounded), label: 'Scanner'),
-          BottomNavigationBarItem(icon: Icon(Icons.receipt_rounded), label: 'Transaction'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Analytics'),
-        ],
-      ),
+      // bottomNavigationBar: BottomNavigationBar(
+      //   type: BottomNavigationBarType.fixed,
+      //   selectedItemColor: const Color(0xFF1E3A8A),
+      //   unselectedItemColor: const Color(0xFF6B7280),
+      //   currentIndex: 0,
+      //   onTap: _onItemTapped,
+      //   items: const [
+      //     BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
+      //     BottomNavigationBarItem(icon: Icon(Icons.inventory_2_rounded), label: 'Inventory'),
+      //     BottomNavigationBarItem(icon: Icon(Icons.qr_code_scanner_rounded), label: 'Scanner'),
+      //     BottomNavigationBarItem(icon: Icon(Icons.receipt_rounded), label: 'Transaction'),
+      //     BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Analytics'),
+      //   ],
+      // ),
     );
   }
 

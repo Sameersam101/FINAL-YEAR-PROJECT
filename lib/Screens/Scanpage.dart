@@ -32,6 +32,8 @@ class _ScanPageState extends State<ScanPage> {
   final List<Map<String, dynamic>> _scannedProducts = [];
   int _selectedIndex = 2;
   final List<Map<String, TextEditingController>> _controllers = [];
+  bool _isProcessingBarcode = false;
+
 
   @override
   void initState() {
@@ -51,6 +53,7 @@ class _ScanPageState extends State<ScanPage> {
     for (var controllerMap in _controllers) {
       controllerMap['name']?.dispose();
       controllerMap['price']?.dispose();
+      controllerMap['sellingPrice']?.dispose();
       controllerMap['quantity']?.dispose();
       controllerMap['category']?.dispose();
     }
@@ -90,7 +93,7 @@ class _ScanPageState extends State<ScanPage> {
         Navigator.pushReplacement(context, _createRoute(const Transactionpage()));
         break;
       case 4:
-        Navigator.pushReplacement(context, _createRoute(const Analyticspage()));
+        Navigator.pushReplacement(context, _createRoute(const AnalyticsPage()));
         break;
     }
   }
@@ -313,9 +316,14 @@ Extract product information from this image of a receipt or invoice. Return the 
 
   Future<void> _scanBarcode() async {
     try {
+      setState(() => _isProcessingBarcode = true);
+
       var cameraStatus = await Permission.camera.request();
       if (!cameraStatus.isGranted) {
-        setState(() => _recognizedText = 'Camera permission denied.');
+        setState(() {
+          _recognizedText = 'Camera permission denied.';
+          _isProcessingBarcode = false;
+        });
         return;
       }
 
@@ -329,26 +337,21 @@ Extract product information from this image of a receipt or invoice. Return the 
             android: AndroidOptions(aspectTolerance: 0.00, useAutoFocus: true),
           ),
         );
-        // Break if scanResult is not null and rawContent is not empty
-        if (scanResult != null && (scanResult.rawContent.isNotEmpty)) {
-          break;
-        }
+        if (scanResult != null && scanResult.rawContent.isNotEmpty) break;
         await Future.delayed(const Duration(milliseconds: 500));
       }
 
-      // Handle null or empty rawContent explicitly
-      if (scanResult == null) {
-        setState(() => _recognizedText = 'Scan failed: No result returned');
+      if (scanResult == null || scanResult.rawContent.isEmpty) {
+        setState(() {
+          _recognizedText = 'Scan canceled or failed';
+          _isProcessingBarcode = false;
+        });
         return;
       }
 
       String barcodeContent = scanResult.rawContent;
-      if (barcodeContent.isEmpty) {
-        setState(() => _recognizedText = 'Scan canceled or failed: No barcode content');
-        return;
-      }
+      setState(() => _recognizedText = 'Processing barcode...');
 
-      // At this point, barcodeContent is guaranteed to be non-empty
       Map<String, dynamic> productData = await _fetchProductFromBarcodeMonster(barcodeContent);
       bool noData = productData['name'] == 'Unknown';
       if (noData) {
@@ -362,18 +365,24 @@ Extract product information from this image of a receipt or invoice. Return the 
           'name': noData ? '' : productData['name'],
           'price': noData ? 0.0 : productData['price'],
           'quantity': 1,
+          'sellingPrice': noData ? 0.0 : (productData['price']),
           'category': noData ? '' : productData['category'],
         });
         _controllers.add({
           'name': TextEditingController(text: noData ? '' : productData['name']),
           'price': TextEditingController(text: noData ? '' : productData['price'].toString()),
           'quantity': TextEditingController(text: '1'),
+          'sellingPrice': TextEditingController(
+            text: noData ? '0.0' : (productData['price']).toStringAsFixed(2),
+          ),
           'category': TextEditingController(text: noData ? '' : productData['category']),
         });
         _recognizedText = 'Scanned barcode: $barcodeContent';
+        _isProcessingBarcode = false;
       });
     } catch (e) {
       setState(() => _recognizedText = 'Error scanning barcode: $e');
+      _isProcessingBarcode = false;
     }
   }
 
@@ -490,10 +499,35 @@ Extract product information from this image of a receipt or invoice. Return the 
 
   Future<void> _saveTransactionAndNavigate() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null || _previewData == null) {
+    if (user == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('User not logged in or no transaction data')),
+          SnackBar(
+            content: Text(
+              'User not logged in',
+              style: GoogleFonts.inter(color: Colors.white),
+            ),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (_previewData == null ||
+        _previewData!['products'] == null ||
+        (_previewData!['products'] as List<dynamic>).isEmpty ||
+        _previewData!['amount'] == null ||
+        (_previewData!['amount'] as num) <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'No products or invalid amount',
+              style: GoogleFonts.inter(color: Colors.white),
+            ),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
         );
       }
       return;
@@ -587,6 +621,7 @@ Extract product information from this image of a receipt or invoice. Return the 
       var controller = _controllers[i];
       String name = controller['name']!.text;
       String priceText = controller['price']!.text;
+      String sellingPriceText = controller['sellingPrice']!.text;
       String quantityText = controller['quantity']!.text;
       String category = controller['category']!.text;
 
@@ -594,6 +629,9 @@ Extract product information from this image of a receipt or invoice. Return the 
         isValid = false;
       }
       if (priceText.isEmpty || (double.tryParse(priceText) ?? 0.0) <= 0.0) {
+        isValid = false;
+      }
+      if (sellingPriceText.isEmpty || (double.tryParse(sellingPriceText) ?? 0.0) <= 0.0) {
         isValid = false;
       }
       if (quantityText.isEmpty || (int.tryParse(quantityText) ?? 0) < 1) {
@@ -607,12 +645,17 @@ Extract product information from this image of a receipt or invoice. Return the 
     if (!isValid) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please fill all required fields correctly')),
+          SnackBar(
+            content: Text(
+              'Please fill all required fields correctly',
+              style: GoogleFonts.inter(color: Colors.white),
+            ),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
         );
       }
       return;
     }
-
     try {
       final batch = FirebaseFirestore.instance.batch();
       int addedCount = 0;
@@ -623,11 +666,13 @@ Extract product information from this image of a receipt or invoice. Return the 
 
         String name = controller['name']!.text;
         double price = double.tryParse(controller['price']!.text) ?? 0.0;
+        double sellingPrice = double.tryParse(controller['sellingPrice']!.text) ?? 0.0;
         int quantity = int.tryParse(controller['quantity']!.text) ?? 1;
         String category = controller['category']!.text;
 
         _scannedProducts[i]['name'] = name;
         _scannedProducts[i]['price'] = price;
+        _scannedProducts[i]['sellingPrice'] = sellingPrice;
         _scannedProducts[i]['quantity'] = quantity;
         _scannedProducts[i]['category'] = category;
 
@@ -643,9 +688,11 @@ Extract product information from this image of a receipt or invoice. Return the 
           'category': category.toLowerCase(),
           'quantity': quantity,
           'price': price,
+          'sellingPrice': sellingPrice,
           'date': Timestamp.fromDate(DateTime.now()),
           'createdAt': FieldValue.serverTimestamp(),
           'userId': user.uid,
+          'barcode': product['barcode'],
         });
         addedCount++;
       }
@@ -653,7 +700,7 @@ Extract product information from this image of a receipt or invoice. Return the 
       await batch.commit();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$addedCount product(s) added to inventory')),
+          SnackBar(content: Text('$addedCount product(s) added to inventory'), backgroundColor: const Color(0xFF10B981),),
         );
 
         Navigator.pushReplacement(
@@ -1171,7 +1218,22 @@ Extract product information from this image of a receipt or invoice. Return the 
                                                 },
                                               ),
                                             ),
-                                            SizedBox(width: mediaQuery.size.width * 0.03),
+                                            SizedBox(width: mediaQuery.size.width * 0.01),
+                                            Expanded(
+                                              child: _buildTextField(
+                                                controller: controller['sellingPrice']!,
+                                                label: 'Selling Price',
+                                                // hintText: product['Selling Price'] == 1 ? '1' : null,
+                                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                                validator: (value) {
+                                                  if (value == null || value.isEmpty) return 'Required';
+                                                  final price = double.tryParse(value);
+                                                  if (price == null || price <= 0.0) return 'Must be > 0';
+                                                  return null;
+                                                },
+                                              ),
+                                            ),
+                                            SizedBox(width: mediaQuery.size.width * 0.01),
                                             Expanded(
                                               child: _buildTextField(
                                                 controller: controller['quantity']!,

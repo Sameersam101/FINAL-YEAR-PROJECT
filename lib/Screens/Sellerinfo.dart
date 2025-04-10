@@ -72,7 +72,7 @@ class _SellerDetailPageState extends State<SellerDetailPage> {
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => Transactionpage()));
         break;
       case 4:
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => Analyticspage()));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => AnalyticsPage()));
         break;
     }
   }
@@ -132,7 +132,7 @@ class _SellerDetailPageState extends State<SellerDetailPage> {
               ),
               pw.SizedBox(height: 20),
               pw.Text(
-                'Total Amount: \रु ${totalDue.toStringAsFixed(2)}',
+                'Total Amount: \Rs ${totalDue.toStringAsFixed(2)}',
                 style: const pw.TextStyle(fontSize: 18),
               ),
               pw.SizedBox(height: 30),
@@ -178,10 +178,10 @@ class _SellerDetailPageState extends State<SellerDetailPage> {
                         pw.Text(data['itemName'] ?? ''),
                         pw.Text(data['date'] ?? ''),
                         pw.Text(data['quantity']?.toString() ?? '0'),
-                        pw.Text('\रु ${productAmount.toStringAsFixed(2)}'),
-                        pw.Text('\रु ${sellingPrice.toStringAsFixed(2)}'),
-                        pw.Text('\रु ${purchaseAmount.toStringAsFixed(2)}'),
-                        pw.Text('\रु ${paymentAmount.toStringAsFixed(2)}'),
+                        pw.Text('\Rs ${productAmount.toStringAsFixed(2)}'),
+                        pw.Text('\Rs ${sellingPrice.toStringAsFixed(2)}'),
+                        pw.Text('\Rs ${purchaseAmount.toStringAsFixed(2)}'),
+                        pw.Text('\Rs ${paymentAmount.toStringAsFixed(2)}'),
                         pw.Text(data['status'] ?? ''),
                       ],
                     );
@@ -751,7 +751,7 @@ class _SellerDetailPageState extends State<SellerDetailPage> {
                     ScaffoldMessenger.of(parentContext).showSnackBar(
                       SnackBar(
                         content: Text('$message'),
-                        backgroundColor: const Color(0xFFF97316),
+                        backgroundColor: const Color(0xFF10B981),
                         duration: const Duration(seconds: 2),
                       ),
                     );
@@ -955,7 +955,7 @@ class _SellerDetailPageState extends State<SellerDetailPage> {
                                                   final additionalAmount = double.tryParse(value) ?? 0.0;
                                                   if (additionalAmount <= 0) {
                                                     ScaffoldMessenger.of(context).showSnackBar(
-                                                      SnackBar(content: Text('Please enter a valid amount')),
+                                                      SnackBar(content: Text('Please enter a valid amount'), backgroundColor: const Color(0xFFEF4444),),
                                                     );
                                                     return;
                                                   }
@@ -979,7 +979,7 @@ class _SellerDetailPageState extends State<SellerDetailPage> {
                                                   });
                                                   ScaffoldMessenger.of(context).showSnackBar(
                                                     SnackBar(
-                                                      content: Text('Payment updated to \रु ${newPaymentAmount.toStringAsFixed(2)}'),
+                                                      content: Text('Payment updated to \रु ${newPaymentAmount.toStringAsFixed(2)}'), backgroundColor: const Color(0xFF10B981),
                                                     ),
                                                   );
                                                 }
@@ -1024,7 +1024,7 @@ class _SellerDetailPageState extends State<SellerDetailPage> {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text('All pending payments cleared!'),
-                              backgroundColor: const Color(0xFFF97316),
+                              backgroundColor: const Color(0xFF10B981),
                               duration: const Duration(seconds: 2),
                             ),
                           );
@@ -1157,7 +1157,7 @@ class _SellerDetailPageState extends State<SellerDetailPage> {
                           final additionalAmount = double.tryParse(editPaymentController.text) ?? 0.0;
                           if (additionalAmount <= 0) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Please enter a valid amount')),
+                              SnackBar(content: Text('Please enter a valid amount'), backgroundColor: const Color(0xFFEF4444),),
                             );
                             return;
                           }
@@ -1203,7 +1203,7 @@ class _SellerDetailPageState extends State<SellerDetailPage> {
 
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('Payment updated to \$${newPaymentAmount.toStringAsFixed(2)}'),
+                                content: Text('Payment updated to \$${newPaymentAmount.toStringAsFixed(2)}'), backgroundColor: const Color(0xFF10B981),
                               ),
                             );
                             Navigator.pop(context);
@@ -1581,20 +1581,20 @@ class _SellerDetailPageState extends State<SellerDetailPage> {
           ],
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: const Color(0xFF1E3A8A),
-        unselectedItemColor: const Color(0xFF6B7280),
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.inventory_2_rounded), label: 'Inventory'),
-          BottomNavigationBarItem(icon: Icon(Icons.qr_code_scanner_rounded), label: 'Scanner'),
-          BottomNavigationBarItem(icon: Icon(Icons.receipt_rounded), label: 'Transaction'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Analytics'),
-        ],
-      ),
+      // bottomNavigationBar: BottomNavigationBar(
+      //   type: BottomNavigationBarType.fixed,
+      //   selectedItemColor: const Color(0xFF1E3A8A),
+      //   unselectedItemColor: const Color(0xFF6B7280),
+      //   currentIndex: _selectedIndex,
+      //   onTap: _onItemTapped,
+      //   items: const [
+      //     BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
+      //     BottomNavigationBarItem(icon: Icon(Icons.inventory_2_rounded), label: 'Inventory'),
+      //     BottomNavigationBarItem(icon: Icon(Icons.qr_code_scanner_rounded), label: 'Scanner'),
+      //     BottomNavigationBarItem(icon: Icon(Icons.receipt_rounded), label: 'Transaction'),
+      //     BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Analytics'),
+      //   ],
+      // ),
     );
   }
 }
