@@ -1,6 +1,3 @@
-import 'dart:math';
-
-import 'package:arthikapp/Screens/splash_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,7 +9,6 @@ import '/notifications.dart';
 import 'login_page.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
-import 'package:permission_handler/permission_handler.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -92,7 +88,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
 
       if (shouldRequest == true) {
-        await await openAppSettings();
+        await notificationsServices.requestNotificationPermission();
       }
     }
   }
@@ -108,7 +104,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final filePath = 'profiles/$username.jpg';
       final supabase = Supabase.instance.client;
 
-      await supabase.storage.from('profiles').upload(filePath, file, fileOptions: const FileOptions(upsert: true));
+      await supabase.storage.from('profiles').upload(filePath, file);
       final photoURL = supabase.storage.from('profiles').getPublicUrl(filePath);
 
       await FirebaseFirestore.instance
@@ -121,7 +117,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Photo uploaded successfully'), backgroundColor: Color(0xFF10B981),),
+        const SnackBar(content: Text('Photo uploaded successfully')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -137,7 +133,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             .collection('Users')
             .doc(user!.uid)
             .update({field: value});
-        print('error updating preference: $e');
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error updating preference: $e')),
@@ -146,235 +141,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _showLogoutConfirmation() async {
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Logout'),
-        content: const Text('Are you sure you want to log out?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel', style: TextStyle(color: Color(0xFF6B7280))),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout', style: TextStyle(color: Color(0xFF1E3A8A))),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldLogout == true) {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      await authService.signOut();
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => SplashScreen()),
-            (Route<dynamic> route) => false,
-      );
-    }
-  }
-
-  bool _isProfileIncomplete() {
-    if (userData == null) return true;
-    return [
-      userData?['Name'],
-      userData?['Email'] ?? user?.email,
-      userData?['Mobile'],
-      userData?['BusinessName'],
-      userData?['Address'],
-    ].any((field) => field == null || field.toString().trim().isEmpty);
-  }
-
-  Future<void> _showCompleteProfileDialog() async {
-    final formKey = GlobalKey<FormState>();
-    final nameController = TextEditingController(text: userData?['Name'] ?? '');
-    final emailController = TextEditingController(text: userData?['Email'] ?? user?.email ?? '');
-    final mobileController = TextEditingController(text: userData?['Mobile'] ?? '');
-    final businessNameController = TextEditingController(text: userData?['BusinessName'] ?? '');
-    final addressController = TextEditingController(text: userData?['Address'] ?? '');
-
-    final isNameFilled = userData?['Name']?.isNotEmpty ?? false;
-    final isEmailFilled = (userData?['Email'] ?? user?.email)?.isNotEmpty ?? false;
-    final isMobileFilled = userData?['Mobile']?.isNotEmpty ?? false;
-    final isBusinessNameFilled = userData?['BusinessName']?.isNotEmpty ?? false;
-    final isAddressFilled = userData?['Address']?.isNotEmpty ?? false;
-
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        title: Text(
-          'Complete Your Profile',
-          style: GoogleFonts.inter(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: const Color(0xFFEF4444),
-          ),
-        ),
-        content: Form(
-          key: formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                buildProfileFormField(
-                  controller: nameController,
-                  label: 'Name',
-                  icon: Icons.person,
-                  readOnly: isNameFilled,
-                  validator: (value) {
-                    if (!isNameFilled && (value == null || value.trim().isEmpty)) {
-                      return 'Name is required';
-                    }
-                    return null;
-                  },
-                ),
-                buildProfileFormField(
-                  controller: emailController,
-                  label: 'Email',
-                  icon: Icons.email,
-                  readOnly: isEmailFilled,
-                  validator: (value) {
-                    if (!isEmailFilled && (value == null || value.trim().isEmpty)) {
-                      return 'Email is required';
-                    }
-                    if (!isEmailFilled && !RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value!)) {
-                      return 'Enter a valid email';
-                    }
-                    return null;
-                  },
-                ),
-                buildProfileFormField(
-                  controller: mobileController,
-                  label: 'Mobile',
-                  icon: Icons.phone,
-                  readOnly: isMobileFilled,
-                  validator: (value) {
-                    if (!isMobileFilled && (value == null || value.trim().isEmpty)) {
-                      return 'Mobile number is required';
-                    }
-                    if (!isMobileFilled && !RegExp(r'^\d{10}$').hasMatch(value!)) {
-                      return 'Enter a valid 10-digit mobile number';
-                    }
-                    return null;
-                  },
-                ),
-                buildProfileFormField(
-                  controller: businessNameController,
-                  label: 'Business Name',
-                  icon: Icons.business,
-                  readOnly: isBusinessNameFilled,
-                  validator: (value) {
-                    if (!isBusinessNameFilled && (value == null || value.trim().isEmpty)) {
-                      return 'Business name is required';
-                    }
-                    return null;
-                  },
-                ),
-                buildProfileFormField(
-                  controller: addressController,
-                  label: 'Address',
-                  icon: Icons.location_on,
-                  readOnly: isAddressFilled,
-                  validator: (value) {
-                    if (!isAddressFilled && (value == null || value.trim().isEmpty)) {
-                      return 'Address is required';
-                    }
-                    return null;
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.inter(color: const Color(0xFF6B7280)),
-            ),
-          ),
-          TextButton(
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                try {
-                  final updates = <String, dynamic>{};
-                  if (!isNameFilled) updates['Name'] = nameController.text.trim();
-                  if (!isEmailFilled) updates['Email'] = emailController.text.trim();
-                  if (!isMobileFilled) updates['Mobile'] = mobileController.text.trim();
-                  if (!isBusinessNameFilled) updates['BusinessName'] = businessNameController.text.trim();
-                  if (!isAddressFilled) updates['Address'] = addressController.text.trim();
-
-                  if (updates.isNotEmpty) {
-                    await FirebaseFirestore.instance
-                        .collection('Users')
-                        .doc(user!.uid)
-                        .update(updates);
-                    setState(() {
-                      userData?.addAll(updates);
-                    });
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Profile updated successfully'), backgroundColor: const Color(0xFF10B981),),
-                    );
-                  } else {
-                    Navigator.pop(context);
-                  }
-                } catch (e) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error updating profile: $e')),
-                  );
-                }
-              }
-            },
-            child: Text(
-              'Save',
-              style: GoogleFonts.inter(color: const Color(0xFF1E3A8A)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget buildProfileFormField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    required bool readOnly,
-    String? Function(String?)? validator,
-  }) {
-    final mediaQuery = MediaQuery.of(context);
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: mediaQuery.size.height * 0.01),
-      child: TextFormField(
-        controller: controller,
-        readOnly: readOnly,
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: Icon(icon, color: const Color(0xFF6B7280)),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          labelStyle: GoogleFonts.inter(color: const Color(0xFF6B7280)),
-        ),
-        style: GoogleFonts.inter(
-          fontSize: mediaQuery.size.width * 0.04,
-          color: const Color(0xFF221E22),
-        ),
-        validator: validator,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final authService = Provider.of<AuthService>(context, listen: false);
     final mediaQuery = MediaQuery.of(context);
 
     return Scaffold(
@@ -416,7 +185,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       _buildIconButton(
                         icon: Icons.logout,
-                        onPressed: _showLogoutConfirmation,
+                        onPressed: () async {
+                          await authService.signOut();
+                          Navigator.of(context).pushAndRemoveUntil(
+                            MaterialPageRoute(builder: (context) => LoginPage()),
+                                (Route<dynamic> route) => false,
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -530,40 +305,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'User Info',
-                                  style: GoogleFonts.inter(
-                                    fontSize: mediaQuery.size.width * 0.05,
-                                    fontWeight: FontWeight.w600,
-                                    color: const Color(0xFF221E22),
-                                  ),
-                                ),
-                                if (_isProfileIncomplete())
-                                  GestureDetector(
-                                    onTap: _showCompleteProfileDialog,
-                                    child: Row(
-                                      children: [
-                                        Text(
-                                          'Complete Profile',
-                                          style: GoogleFonts.inter(
-                                            fontSize: mediaQuery.size.width * 0.035,
-                                            color: const Color(0xFFEF4444),
-
-                                          ),
-                                        ),
-                                        SizedBox(width: mediaQuery.size.width * 0.01),
-                                        Icon(
-                                          Icons.info_outline,
-                                          size: mediaQuery.size.width * 0.04,
-                                          color: const Color(0xFFEF4444),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                              ],
+                            Text(
+                              'User Info',
+                              style: GoogleFonts.inter(
+                                fontSize: mediaQuery.size.width * 0.05,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF221E22),
+                              ),
                             ),
                             const SizedBox(height: 10),
                             Card(

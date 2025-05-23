@@ -215,10 +215,10 @@ class _AdminUserDetailsPageState extends State<AdminUserDetailsPage> {
             pw.SizedBox(height: 10),
             pw.Text('Total Products Sold: ${_cachedData['totalProductsSold'] ?? 0}'),
             pw.Text('Total Suppliers: ${_cachedData['totalSuppliers'] ?? 0}'),
-            pw.Text('Total Income: Rs${(_cachedData['totalIncome'] ?? 0.0).toStringAsFixed(2)}'),
-            pw.Text('Total Expenses: Rs${(_cachedData['totalExpenses'] ?? 0.0).toStringAsFixed(2)}'),
+            pw.Text('Total Income: रु ${(_cachedData['totalIncome'] ?? 0.0).toStringAsFixed(2)}'),
+            pw.Text('Total Expenses: रु ${(_cachedData['totalExpenses'] ?? 0.0).toStringAsFixed(2)}'),
             pw.Text('Total Products: ${_cachedData['totalProducts'] ?? 0}'),
-            pw.Text('Today\'s Sales: Rs${(_cachedData['todaysSales'] ?? 0.0).toStringAsFixed(2)}'),
+            pw.Text('Today\'s Sales: रु ${(_cachedData['todaysSales'] ?? 0.0).toStringAsFixed(2)}'),
             pw.SizedBox(height: 20),
             pw.Text('Inventory', style: const pw.TextStyle(fontSize: 18)),
             pw.SizedBox(height: 10),
@@ -244,7 +244,7 @@ class _AdminUserDetailsPageState extends State<AdminUserDetailsPage> {
                     children: [
                       pw.Text(data['productName'] ?? 'Unknown'),
                       pw.Text((data['quantity'] ?? 0).toString()),
-                      pw.Text('Rs${(data['price'] ?? 0).toStringAsFixed(2)}'),
+                      pw.Text('रु ${(data['price'] ?? 0).toStringAsFixed(2)}'),
                     ],
                   );
                 }),
@@ -321,7 +321,7 @@ class _AdminUserDetailsPageState extends State<AdminUserDetailsPage> {
                       pw.Text(title),
                       pw.Text(isIncome ? 'Cash In' : 'Cash Out'),
                       pw.Text(
-                        (isIncome ? '+Rs' : '-Rs') + amount.toStringAsFixed(2),
+                        (isIncome ? '+रु ' : '-रु ') + amount.toStringAsFixed(2),
                         style: pw.TextStyle(
                           color: isIncome ? PdfColors.green : PdfColors.red,
                         ),
@@ -336,7 +336,7 @@ class _AdminUserDetailsPageState extends State<AdminUserDetailsPage> {
                     pw.Text(''),
                     pw.Text(''),
                     pw.Text(
-                      'Cash In: +Rs${totalCashIn.toStringAsFixed(2)}',
+                      'Cash In: +रु ${totalCashIn.toStringAsFixed(2)}',
                       style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.green),
                     ),
                     pw.Text(''),
@@ -348,7 +348,7 @@ class _AdminUserDetailsPageState extends State<AdminUserDetailsPage> {
                     pw.Text(''),
                     pw.Text(''),
                     pw.Text(
-                      'Cash Out: -Rs${totalCashOut.toStringAsFixed(2)}',
+                      'Cash Out: -रु ${totalCashOut.toStringAsFixed(2)}',
                       style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.red),
                     ),
                     pw.Text(''),
@@ -801,7 +801,7 @@ class _AdminUserDetailsPageState extends State<AdminUserDetailsPage> {
                         return Text(
                           isCurrency ? 'रु ${value.toStringAsFixed(2)}' : value.toString(),
                           style: GoogleFonts.inter(
-                            fontSize: mediaQuery.size.width * 0.025,
+                            fontSize: mediaQuery.size.width * 0.035,
                             fontWeight: FontWeight.bold,
                             color: const Color(0xFF221E22), // Dark Gray
                           ),

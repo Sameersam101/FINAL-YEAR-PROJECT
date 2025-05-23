@@ -18,17 +18,17 @@ class NotificationsServices {
     // Do not start the timer here; wait for context to be set
   }
 
-  // Start periodic scanning for pending payments and low stock
+  // Start periodic scanning for pending payments
   void _startPeriodicScanning() {
+    // Prevent starting multiple timers
     if (_timer != null) return;
 
-    _timer = Timer.periodic(Duration(seconds: 30), (timer) async {
+    _timer = Timer.periodic(Duration(minutes: 60), (timer) async {
       final userId = FirebaseAuth.instance.currentUser?.uid;
       if (userId != null) {
         await checkAndSendPendingPaymentNotification(userId);
-        // Optionally, add periodic low stock checks here if needed
       } else {
-        print('User ID is null, skipping checks');
+        print('User ID is null, skipping pending payment check');
       }
     });
   }
@@ -212,7 +212,7 @@ class NotificationsServices {
 
       // Check if the order is older than 1 minute
       final orderAge = DateTime.now().difference(createdAt.toDate());
-      if (orderAge.inSeconds < 60) {
+      if (orderAge.inMinutes < 60) {
         print('Order ${orderDoc.id} is less than 1 minute old, skipping');
         continue;
       }
@@ -334,7 +334,7 @@ class NotificationsServices {
     }
   }
 
-  // Show a custom dialog for low stock notifications
+  // Existing low stock methods (unchanged)
   void _showLowStockNotificationDialog(BuildContext context) {
     if (_pendingLowStockProducts.isEmpty || _isDialogShowing) return;
 
@@ -379,7 +379,6 @@ class NotificationsServices {
     });
   }
 
-  // Check and send low stock notifications
   Future<void> checkAndSendLowStockNotification(
       BuildContext context,
       String productId,
@@ -389,11 +388,14 @@ class NotificationsServices {
       ) async {
     print('Checking low stock for product: $productId, quantity: $quantity (previous: ${_previousStockLevels[productId]})');
 
-    // Update previous stock level
     final previousQuantity = _previousStockLevels[productId] ?? quantity;
     _previousStockLevels[productId] = quantity;
 
-    // Check if low stock alerts are enabled
+    if (!(previousQuantity == 6 && quantity == 5)) {
+      print('Not a 6→5 transition, skipping notification');
+      return;
+    }
+
     final userDoc = await FirebaseFirestore.instance
         .collection('Users')
         .doc(userId)
@@ -405,56 +407,20 @@ class NotificationsServices {
       return;
     }
 
-    // Check if stock is below threshold (10 units)
-    const stockThreshold = 10;
-    if (quantity >= stockThreshold) {
-      // If stock is 10 or more, mark any existing low stock notifications as read
-      if (previousQuantity < stockThreshold) {
-        await _markNotificationsAsRead(context, 'low_stock');
-        print('Stock for $productName is now above threshold ($quantity), marked notifications as read');
-      }
-      return;
-    }
+    _pendingLowStockProducts.add({
+      'id': productId,
+      'name': productName,
+      'quantity': quantity,
+    });
 
-    // Check for existing unread notification to prevent duplicates
-    final existingNotification = await FirebaseFirestore.instance
-        .collection('Users')
-        .doc(userId)
-        .collection('notifications')
-        .where('type', isEqualTo: 'low_stock')
-        .where('read', isEqualTo: false)
-        .where('productId', isEqualTo: productId)
-        .where('quantity', isEqualTo: quantity)
-        .get();
+    print('Sending low stock notification for $productName');
+    await _sendLowStockNotification(context, productId, productName, userId, quantity);
 
-    if (existingNotification.docs.isNotEmpty) {
-      print('Unread low stock notification already exists for $productName with quantity $quantity');
-      // Add to pending list to show in dialog if not already present
-      if (!_pendingLowStockProducts.any((p) => p['id'] == productId && p['quantity'] == quantity)) {
-        _pendingLowStockProducts.add({
-          'id': productId,
-          'name': productName,
-          'quantity': quantity,
-        });
-      }
-    } else {
-      // Add to pending list and send notification
-      _pendingLowStockProducts.add({
-        'id': productId,
-        'name': productName,
-        'quantity': quantity,
-      });
-      print('Sending low stock notification for $productName');
-      await _sendLowStockNotification(context, productId, productName, userId, quantity);
-    }
-
-    // Show the dialog if not already showing
-    if (!_isDialogShowing && context != null) {
+    if (!_isDialogShowing) {
       _showLowStockNotificationDialog(context);
     }
   }
 
-  // Send low stock notification and store it in Firestore
   Future<void> _sendLowStockNotification(
       BuildContext context,
       String productId,

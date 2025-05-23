@@ -38,7 +38,7 @@ class _InventoryPageState extends State<InventoryPage> {
         Navigator.push(context, _createRoute(const Transactionpage()));
         break;
       case 4:
-        Navigator.push(context, _createRoute(const AnalyticsPage()));
+        Navigator.push(context, _createRoute(const Analyticspage()));
         break;
     }
   }
@@ -1111,6 +1111,8 @@ class _ProductTransactionDialogState extends State<ProductTransactionDialog> {
             onPressed: () {
               if (_formKey.currentState!.validate()) {
                 _saveTransaction();
+              } else {
+                _showSnackBar('Please fill all required fields correctly');
               }
             },
             style: ElevatedButton.styleFrom(

@@ -14,20 +14,13 @@ class SuppliersSection extends StatelessWidget {
     final TextEditingController emailController = TextEditingController();
     final TextEditingController addressController = TextEditingController();
     final mediaQuery = MediaQuery.of(context);
+
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(mediaQuery.size.width * 0.04)),
-          backgroundColor: Colors.white,
-          title: Text(
-          'Add Supplier',
-          style: GoogleFonts.inter(
-            fontSize: mediaQuery.size.width * 0.045,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF221E22),
-          ),
-        ),
+          backgroundColor: const Color(0xFFFFEFD3), // Light Peach
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,

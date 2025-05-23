@@ -9,6 +9,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:rxdart/rxdart.dart';
 import 'dart:async';
+
 import 'profile.dart';
 import 'transaction.dart';
 import 'sellerpage.dart';
@@ -45,7 +46,7 @@ class _DashboardPageState extends State<DashboardPage> {
         Navigator.push(context, _createRoute(Transactionpage()));
         break;
       case 4:
-        Navigator.push(context, _createRoute(AnalyticsPage()));
+        Navigator.push(context, _createRoute(Analyticspage()));
         break;
     }
   }
@@ -364,7 +365,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                     _buildQuickLink(Icons.qr_code_scanner, 'Scanner', () => Navigator.push(context, _createRoute(ScanPage()))),
                                     _buildQuickLink(Icons.person_rounded, 'Seller', () => Navigator.push(context, _createRoute(const SellerPage()))),
                                     _buildQuickLink(Icons.inventory_2_rounded, 'Inventory', () => Navigator.push(context, _createRoute(const InventoryPage()))),
-                                    _buildQuickLink(Icons.bar_chart_rounded, 'Analytics', () => Navigator.push(context, _createRoute(AnalyticsPage()))),
+                                    _buildQuickLink(Icons.bar_chart_rounded, 'Analytics', () => Navigator.push(context, _createRoute(Analyticspage()))),
                                   ],
                                 ),
                               ],
@@ -998,7 +999,7 @@ class _AddSaleDialogState extends State<AddSaleDialog> {
           if (newQuantity < 0) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Insufficient stock for $productName'), backgroundColor: const Color(0xFFEF4444),),
+                SnackBar(content: Text('Insufficient stock for $productName')),
               );
             }
             return;
@@ -1033,7 +1034,7 @@ class _AddSaleDialogState extends State<AddSaleDialog> {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Sale saved successfully'), backgroundColor: const Color(0xFF10B981),));
+            const SnackBar(content: Text('Sale saved successfully')));
       }
     } catch (e) {
       if (mounted) {
@@ -1483,6 +1484,7 @@ class _AddSaleDialogState extends State<AddSaleDialog> {
     );
   }
 }
+
 class AddExpenseDialog extends StatefulWidget {
   final VoidCallback onSwitchToSale;
 
@@ -1493,7 +1495,7 @@ class AddExpenseDialog extends StatefulWidget {
 }
 
 class _AddExpenseDialogState extends State<AddExpenseDialog> {
-  final _amountController = TextEditingController(text: '0');
+  final _amountController = TextEditingController(text: '1.00');
   final List<Map<String, TextEditingController>> _expenseFields = [
     {
       'description': TextEditingController(),
@@ -1501,7 +1503,6 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
     },
   ];
   bool _showAddMoreFields = false;
-  String? _errorMessage; // For error message display
 
   void _addExpenseField() {
     setState(() {
@@ -1513,57 +1514,38 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
   }
 
   Future<void> _saveExpense() async {
-    setState(() {
-      _errorMessage = null; // Reset error message
-    });
-
     final expenses = <String, int>{};
     for (var field in _expenseFields) {
       final description = field['description']!.text.trim();
       final quantityText = field['quantity']!.text.trim();
-      if (description.isEmpty) {
-        setState(() {
-          _errorMessage = 'Please enter a description for all expense fields';
-        });
-        return;
-      }
-      if (quantityText.isEmpty) {
-        setState(() {
-          _errorMessage = 'Please enter a quantity for all expense fields';
-        });
+      if (description.isEmpty || quantityText.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all fields')));
+        }
         return;
       }
       final quantity = int.tryParse(quantityText);
       if (quantity == null || quantity <= 0) {
-        setState(() {
-          _errorMessage = 'Please enter a valid positive quantity';
-        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a valid quantity')));
+        }
         return;
       }
       expenses[description] = quantity;
     }
 
-    final amountText = _amountController.text.trim();
-    if (amountText.isEmpty) {
-      setState(() {
-        _errorMessage = 'Please enter an amount';
-      });
-      return;
-    }
-    final amount = double.tryParse(amountText);
-    if (amount == null || amount <= 0) {
-      setState(() {
-        _errorMessage = 'Please enter a valid positive amount';
-      });
+    final amountText = _amountController.text;
+    if (amountText.isEmpty || double.tryParse(amountText) == null || double.parse(amountText) <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a valid amount')));
+      }
       return;
     }
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      setState(() {
-        _errorMessage = 'User not authenticated. Please log in.';
-      });
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User not authenticated. Please log in.')));
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const LoginPage()));
       }
       return;
@@ -1589,14 +1571,12 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Expense saved successfully'), backgroundColor: const Color(0xFFEF4444)),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Expense saved successfully')));
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = 'Error saving expense: $e';
-      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving expense: $e')));
+      }
     }
   }
 
@@ -1774,16 +1754,6 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
                   }
                 },
               ),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _errorMessage!,
-                  style: GoogleFonts.inter(
-                    fontSize: mediaQuery.size.width * 0.03,
-                    color: const Color(0xFFEF4444),
-                  ),
-                ),
-              ],
               SizedBox(height: mediaQuery.size.height * 0.01),
               Row(
                 children: [
