@@ -1,180 +1,541 @@
+import 'package:arthikapp/Screens/Scanpage.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:arthikapp/Screens/dashboard.dart';
+import 'package:arthikapp/Screens/inventorypage.dart';
+import 'package:arthikapp/Screens/transaction.dart';
 
-class Analyticspage extends StatelessWidget {
+class Analyticspage extends StatefulWidget {
+  const Analyticspage({super.key});
+
+  @override
+  State<Analyticspage> createState() => _AnalyticspageState();
+}
+
+class _AnalyticspageState extends State<Analyticspage> {
+  int _selectedIndex = 4;
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+    switch (index) {
+      case 0:
+        Navigator.pushReplacement(context, _createRoute(const DashboardPage()));
+        break;
+      case 1:
+        Navigator.pushReplacement(context, _createRoute(const InventoryPage()));
+        break;
+      case 2:
+        Navigator.pushReplacement(context, _createRoute(const ScanPage()));
+        break;
+      case 3:
+        Navigator.pushReplacement(context, _createRoute(const Transactionpage()));
+        break;
+      case 4:
+        break;
+    }
+  }
+
+  Route _createRoute(Widget page) {
+    return PageRouteBuilder(
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        const begin = Offset(1.0, 0.0);
+        const end = Offset.zero;
+        const curve = Curves.easeInOut;
+        var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+        return SlideTransition(
+          position: animation.drive(tween),
+          child: child,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+
     return Scaffold(
       backgroundColor: Colors.white,
-      bottomNavigationBar: BottomNavigationBarWidget(),
-      body: SingleChildScrollView(
-        child: Column(
+      body: SafeArea(
+        child: Stack(
           children: [
-            _buildHeader(),
-            _buildNetProfit(),
-            _buildPieChart(),
-            _buildIncomeBreakdown(),
-            _buildTransactionReport(),
-            _buildAiPredictionButton(),
+            Container(
+              height: mediaQuery.size.height * 0.25,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF1E3A8A), Color(0xFFFFFFFF)],
+                ),
+              ),
+            ),
+            Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.all(mediaQuery.size.width * 0.06),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    children: [
+                      GestureDetector(
+                        onTap: () => Navigator.pushReplacement(
+                          context,
+                          _createRoute(const DashboardPage()),
+                        ),
+                        child: Container(
+                          padding: EdgeInsets.all(mediaQuery.size.width * 0.02),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.arrow_back_rounded,
+                            color: Colors.white,
+                            size: mediaQuery.size.width * 0.06,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: mediaQuery.size.width * 0.03),
+                      Text(
+                        'Analytics',
+                        style: GoogleFonts.inter(
+                          fontSize: mediaQuery.size.width * 0.06,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(mediaQuery.size.width * 0.08),
+                        topRight: Radius.circular(mediaQuery.size.width * 0.08),
+                      ),
+                    ),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          _buildMonthSelector(mediaQuery),
+                          _buildStatsRow(mediaQuery),
+                          _buildNetProfit(mediaQuery),
+                          _buildPieChartPlaceholder(mediaQuery),
+                          _buildIncomeBreakdown(mediaQuery),
+                          _buildTransactionReport(mediaQuery),
+                          _buildAiPredictionButton(mediaQuery),
+                          SizedBox(height: mediaQuery.size.height * 0.02),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: const Color(0xFF1E3A8A),
+        unselectedItemColor: const Color(0xFF6B7280),
+        currentIndex: _selectedIndex,
+        onTap: _onItemTapped,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.inventory_2_rounded), label: 'Inventory'),
+          BottomNavigationBarItem(icon: Icon(Icons.qr_code_scanner_rounded), label: 'Scanner'),
+          BottomNavigationBarItem(icon: Icon(Icons.receipt_rounded), label: 'Transaction'),
+          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Analytics'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMonthSelector(MediaQueryData mediaQuery) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: mediaQuery.size.width * 0.05,
+        vertical: mediaQuery.size.height * 0.02,
+      ),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: mediaQuery.size.width * 0.04,
+          vertical: mediaQuery.size.height * 0.01,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFD1D5DB)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.calendar_month_rounded, color: const Color(0xFF6B7280), size: mediaQuery.size.width * 0.05),
+            SizedBox(width: mediaQuery.size.width * 0.02),
+            Text(
+              "December 2023",
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.04,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF6B7280),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
-    return Container(
-      padding: EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.orange,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(30),
-          bottomRight: Radius.circular(30),
-        ),
-      ),
-      child: Column(
-        children: [
-          Text("Analytics", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          SizedBox(height: 10),
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: Text("Dec"),
-          ),
-          SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildInfoCard("INCOME", "\$500,000", Colors.green.shade700, Colors.grey.shade200),
-              _buildInfoCard("EXPECES", "\$800,000", Colors.red.shade700, Colors.blue.shade100),
-            ],
-          )
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoCard(String title, String amount, Color textColor, Color bgColor) {
-    return Container(
-      padding: EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        children: [
-          Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
-          Text(amount, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNetProfit() {
+  Widget _buildStatsRow(MediaQueryData mediaQuery) {
     return Padding(
-      padding: EdgeInsets.all(20),
-      child: Column(
-        children: [
-          Text("NET PROFIT", style: TextStyle(fontWeight: FontWeight.bold)),
-          Text("\$10,928,873,700", style: TextStyle(fontSize: 20, color: Colors.green, fontWeight: FontWeight.bold)),
-          Text("▲ From Past Month", style: TextStyle(fontSize: 12)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPieChart() {
-    return Padding(
-      padding: EdgeInsets.all(20),
-      child: Column(
-        children: [
-          Text("Pie Chart Placeholder"), // Replace with an actual pie chart widget
-        ],
-      ),
-    );
-  }
-
-  Widget _buildIncomeBreakdown() {
-    return Padding(
-      padding: EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("Income Breakdown", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          SizedBox(height: 10),
-          _buildIncomeItem("Rice Cooker", "400 Units", "\$5000"),
-          _buildIncomeItem("Rice Cooker", "400 Units", "\$5000"),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildIncomeItem(String title, String subtitle, String amount) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      child: ListTile(
-        leading: Icon(Icons.store),
-        title: Text(title),
-        subtitle: Text(subtitle),
-        trailing: Text(amount, style: TextStyle(fontWeight: FontWeight.bold)),
-      ),
-    );
-  }
-
-  Widget _buildTransactionReport() {
-    return Padding(
-      padding: EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("Transaction Report", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          SizedBox(height: 10),
-          ElevatedButton.icon(
-            onPressed: () {},
-            icon: Icon(Icons.download),
-            label: Text("DOWNLOAD"),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade300),
-          )
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAiPredictionButton() {
-    return Padding(
-      padding: EdgeInsets.all(20),
-      child: ElevatedButton(
-        onPressed: () {},
-        child: Text("AI PREDICTION", style: TextStyle(fontWeight: FontWeight.bold)),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.orange,
-          padding: EdgeInsets.symmetric(vertical: 15, horizontal: 50),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      ),
-    );
-  }
-}
-
-class BottomNavigationBarWidget extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return BottomAppBar(
+      padding: EdgeInsets.symmetric(horizontal: mediaQuery.size.width * 0.05),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(icon: Icon(Icons.home, color: Colors.blue), onPressed: () {}),
-          IconButton(icon: Icon(Icons.shopping_bag, color: Colors.blue), onPressed: () {}),
-          FloatingActionButton(
-            onPressed: () {},
-            backgroundColor: Colors.orange,
-            child: Icon(Icons.grid_view, color: Colors.white),
+          _buildStatCard(
+            'Income',
+            '\रु 500,000',
+            const Color(0xFF10B981),
+            mediaQuery,
           ),
-          IconButton(icon: Icon(Icons.image, color: Colors.blue), onPressed: () {}),
-          IconButton(icon: Icon(Icons.analytics, color: Colors.blue), onPressed: () {}),
+          _buildStatCard(
+            'Expenses',
+            '\रु 800,000',
+            const Color(0xFFEF4444),
+            mediaQuery,
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard(String label, String value, Color color, MediaQueryData mediaQuery) {
+    return Expanded(
+      child: Container(
+        margin: EdgeInsets.symmetric(horizontal: mediaQuery.size.width * 0.01),
+        padding: EdgeInsets.all(mediaQuery.size.width * 0.04),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.03,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF6B7280),
+              ),
+            ),
+            SizedBox(height: mediaQuery.size.height * 0.01),
+            Text(
+              value,
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.035,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNetProfit(MediaQueryData mediaQuery) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: mediaQuery.size.width * 0.05,
+        vertical: mediaQuery.size.height * 0.02,
+      ),
+      child: Container(
+        padding: EdgeInsets.all(mediaQuery.size.width * 0.04),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Text(
+              "NET PROFIT",
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.035,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF6B7280),
+              ),
+            ),
+            SizedBox(height: mediaQuery.size.height * 0.01),
+            Text(
+              "\रु 10,928,873,700",
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.045,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFF10B981),
+              ),
+            ),
+            SizedBox(height: mediaQuery.size.height * 0.005),
+            Text(
+              "▲ From Past Month",
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.03,
+                color: const Color(0xFF6B7280),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPieChartPlaceholder(MediaQueryData mediaQuery) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: mediaQuery.size.width * 0.05),
+      child: Container(
+        padding: EdgeInsets.all(mediaQuery.size.width * 0.04),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Text(
+              "Expense Breakdown",
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.035,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF6B7280),
+              ),
+            ),
+            SizedBox(height: mediaQuery.size.height * 0.02),
+            Container(
+              height: mediaQuery.size.height * 0.2,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Text(
+                  "Pie Chart Placeholder",
+                  style: GoogleFonts.inter(
+                    fontSize: mediaQuery.size.width * 0.035,
+                    color: const Color(0xFF6B7280),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIncomeBreakdown(MediaQueryData mediaQuery) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: mediaQuery.size.width * 0.05,
+        vertical: mediaQuery.size.height * 0.02,
+      ),
+      child: Container(
+        padding: EdgeInsets.all(mediaQuery.size.width * 0.04),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Income Breakdown",
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.035,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF6B7280),
+              ),
+            ),
+            SizedBox(height: mediaQuery.size.height * 0.02),
+            _buildIncomeItem("Rice Cooker", "400 Units", "\रु 5000", true, mediaQuery),
+            SizedBox(height: mediaQuery.size.height * 0.01),
+            _buildIncomeItem("Microwave", "200 Units", "\रु 3000", true, mediaQuery),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIncomeItem(String title, String subtitle, String amount, bool isIncome, MediaQueryData mediaQuery) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      color: const Color(0xFFFFFFFF),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          vertical: mediaQuery.size.height * 0.015,
+          horizontal: mediaQuery.size.width * 0.04,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.inter(
+                      fontSize: mediaQuery.size.width * 0.035,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF221E22),
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.inter(
+                      fontSize: mediaQuery.size.width * 0.03,
+                      color: const Color(0xFF6B7280),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              amount,
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.035,
+                fontWeight: FontWeight.bold,
+                color: isIncome ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTransactionReport(MediaQueryData mediaQuery) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: mediaQuery.size.width * 0.05),
+      child: Container(
+        padding: EdgeInsets.all(mediaQuery.size.width * 0.04),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Transaction Report",
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.035,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF6B7280),
+              ),
+            ),
+            SizedBox(height: mediaQuery.size.height * 0.02),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {},
+                icon: Icon(Icons.download_rounded, size: mediaQuery.size.width * 0.05),
+                label: Text(
+                  "DOWNLOAD REPORT",
+                  style: GoogleFonts.inter(
+                    fontSize: mediaQuery.size.width * 0.035,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF3F4F6),
+                  foregroundColor: const Color(0xFF1E3A8A),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: EdgeInsets.symmetric(vertical: mediaQuery.size.height * 0.015),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAiPredictionButton(MediaQueryData mediaQuery) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: mediaQuery.size.width * 0.05,
+        vertical: mediaQuery.size.height * 0.02,
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        child: ElevatedButton(
+          onPressed: () {},
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFF97316),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            padding: EdgeInsets.symmetric(vertical: mediaQuery.size.height * 0.02),
+          ),
+          child: Text(
+            "AI PREDICTION",
+            style: GoogleFonts.inter(
+              fontSize: mediaQuery.size.width * 0.04,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+        ),
       ),
     );
   }

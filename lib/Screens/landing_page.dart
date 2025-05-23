@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'login_page.dart';
 
 class LandingPage extends StatefulWidget {
+  const LandingPage({super.key});
+
   @override
   _LandingPageState createState() => _LandingPageState();
 }

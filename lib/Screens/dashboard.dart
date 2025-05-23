@@ -1,8 +1,15 @@
-import 'package:flutter/foundation.dart';
+import 'package:arthikapp/Screens/Scanpage.dart';
+import 'package:arthikapp/Screens/receivenotification.dart';
+import 'package:arthikapp/notifications.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import 'package:rxdart/rxdart.dart';
+import 'dart:async';
+
 import 'profile.dart';
 import 'transaction.dart';
 import 'sellerpage.dart';
@@ -11,11 +18,13 @@ import 'analyticspage.dart';
 import 'login_page.dart';
 
 class DashboardPage extends StatefulWidget {
-  DashboardPage({super.key});
+  const DashboardPage({super.key});
 
   @override
   _DashboardPageState createState() => _DashboardPageState();
 }
+
+StreamSubscription<QuerySnapshot>? _inventorySubscription;
 
 class _DashboardPageState extends State<DashboardPage> {
   int _selectedIndex = 0;
@@ -28,348 +37,621 @@ class _DashboardPageState extends State<DashboardPage> {
       case 0:
         break;
       case 1:
-        Navigator.push(context, MaterialPageRoute(builder: (context) => InventoryPage()));
+        Navigator.push(context, _createRoute(const InventoryPage()));
         break;
       case 2:
+        Navigator.push(context, _createRoute(const ScanPage()));
         break;
       case 3:
-        Navigator.push(context, MaterialPageRoute(builder: (context) => Transactionpage()));
+        Navigator.push(context, _createRoute(Transactionpage()));
         break;
       case 4:
-        Navigator.push(context, MaterialPageRoute(builder: (context) => Analyticspage()));
+        Navigator.push(context, _createRoute(Analyticspage()));
         break;
     }
+  }
+
+  Widget _buildNotificationIconButton(String userId, MediaQueryData mediaQuery) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('Users')
+          .doc(userId)
+          .collection('notifications')
+          .where('read', isEqualTo: false)
+          .snapshots(),
+      builder: (context, snapshot) {
+        int unreadCount = snapshot.hasData ? snapshot.data!.docs.length : 0;
+
+        return Stack(
+          children: [
+            GestureDetector(
+              onTap: () async {
+                await showDialog(
+                  context: context,
+                  builder: (context) => const ReceiveNotificationDialog(),
+                );
+              },
+              child: Container(
+                padding: EdgeInsets.all(mediaQuery.size.width * 0.02),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.notifications_rounded,
+                  color: Colors.white,
+                  size: mediaQuery.size.width * 0.06,
+                ),
+              ),
+            ),
+            if (unreadCount > 0)
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF97316),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(
+                    unreadCount.toString(),
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: mediaQuery.size.width * 0.03,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Route _createRoute(Widget page) {
+    return PageRouteBuilder(
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        const begin = Offset(1.0, 0.0);
+        const end = Offset.zero;
+        const curve = Curves.easeInOut;
+        var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+        return SlideTransition(
+          position: animation.drive(tween),
+          child: child,
+        );
+      },
+    );
+  }
+
+  Future<Map<String, String>> _fetchSuppliersMap(String userId) async {
+    try {
+      final suppliersSnap = await FirebaseFirestore.instance
+          .collection('Users')
+          .doc(userId)
+          .collection('Suppliers')
+          .get();
+      final suppliersMap = <String, String>{};
+      for (var doc in suppliersSnap.docs) {
+        final data = doc.data();
+        suppliersMap[doc.id] = data['name']?.toString() ?? 'Unknown Supplier';
+      }
+      return suppliersMap;
+    } catch (e) {
+      print('Error fetching suppliers: $e');
+      return {};
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final notificationsServices = Provider.of<NotificationsServices>(context, listen: false);
+    notificationsServices.requestNotificationPermission();
+    // Set the context for NotificationsServices to start the timer
+    notificationsServices.setContext(context);
+    _setupInventoryListener();
+  }
+
+  void _setupInventoryListener() {
+    print('Setting up inventory listener in Dashboard');
+    FirebaseAuth.instance.authStateChanges().listen((User? user) {
+      print('Auth state changed, user: ${user?.uid}');
+      _inventorySubscription?.cancel();
+
+      if (user != null) {
+        print('Listening to inventory changes for user: ${user.uid}');
+        _inventorySubscription = FirebaseFirestore.instance
+            .collection('Users')
+            .doc(user.uid)
+            .collection('Inventory')
+            .snapshots()
+            .listen((snapshot) {
+          print('Inventory snapshot received, changes: ${snapshot.docChanges.length}');
+          if (!mounted) return; // Prevent setState if widget is disposed
+          final notificationsServices = Provider.of<NotificationsServices>(context, listen: false);
+          for (var change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.modified || change.type == DocumentChangeType.added) {
+              final data = change.doc.data() as Map<String, dynamic>;
+              final quantity = (data['quantity'] as num?)?.toInt() ?? 0;
+              final productName = data['productName'] as String? ?? 'Unknown Product';
+              print('Document changed: ${change.doc.id}, quantity: $quantity, productName: $productName');
+              notificationsServices.checkAndSendLowStockNotification(
+                context,
+                change.doc.id,
+                productName,
+                quantity,
+                user.uid,
+              );
+            }
+          }
+        }, onError: (error) {
+          print('Error in inventory stream: $error');
+        });
+      } else {
+        print('No user logged in, inventory listener not started');
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    print('Disposing inventory listener in Dashboard');
+    _inventorySubscription?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
+    final mediaQuery = MediaQuery.of(context);
+
     if (user == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => LoginPage()),
-        );
+        Navigator.pushReplacement(context, _createRoute(const LoginPage()));
       });
-      return Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
-      backgroundColor: Colors.orange,
+      backgroundColor: Colors.white,
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Dashboard',
-                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: Icon(Icons.notifications, color: Colors.black),
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Notifications clicked')),
-                            );
-                          },
-                        ),
-                        IconButton(
-                          icon: Icon(Icons.person, color: Colors.black),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (context) => ProfileScreen()),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ],
+        child: Stack(
+          children: [
+            Container(
+              height: mediaQuery.size.height * 0.30,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF1E3A8A), Color(0xFFFFFFFF)],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('transactions')
-                      .where('userId', isEqualTo: user.uid)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Row(
+            ),
+            Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.all(mediaQuery.size.width * 0.05),
+                  child: Column(
+                    children: [
+                      Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          _buildSummaryCard('Total Balance', 'Loading...', Colors.green),
-                          _buildSummaryCard('Total Expense', 'Loading...', Colors.red),
-                        ],
-                      );
-                    }
-                    if (snapshot.hasError) {
-                      return Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          _buildSummaryCard('Total Balance', 'Error', Colors.green),
-                          _buildSummaryCard('Total Expense', 'Error', Colors.red),
-                        ],
-                      );
-                    }
-
-                    int totalBalance = 0;
-                    int totalExpense = 0;
-
-                    for (final doc in snapshot.data!.docs) {
-                      final data = doc.data() as Map<String, dynamic>;
-                      final amount = data['amount'] as int;
-                      if (data['type'] == 'sale') {
-                        totalBalance += amount;
-                      } else if (data['type'] == 'expense') {
-                        totalExpense += amount;
-                      }
-                    }
-
-                    return Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _buildSummaryCard('Total Balance', '\$$totalBalance', Colors.green),
-                        _buildSummaryCard('Total Expense', '\$$totalExpense', Colors.red),
-                      ],
-                    );
-                  },
-                ),
-              ),
-              SizedBox(height: 20),
-              Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-                ),
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(20.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Quick Links',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          Text(
+                            'Dashboard',
+                            style: GoogleFonts.inter(
+                              fontSize: mediaQuery.size.width * 0.06,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
-                          const SizedBox(height: 10),
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              _buildQuickLink(Icons.receipt, 'Transaction', () => Navigator.push(context, MaterialPageRoute(builder: (context) => Transactionpage()))),
-                              SizedBox(width: 20),
-                              _buildQuickLink(Icons.person, 'Seller', () => Navigator.push(context, MaterialPageRoute(builder: (context) => SellerPage()))),
-                              SizedBox(width: 20),
-                              _buildQuickLink(Icons.shopping_bag, 'Inventory', () => Navigator.push(context, MaterialPageRoute(builder: (context) => InventoryPage()))),
-                              SizedBox(width: 20),
-                              _buildQuickLink(Icons.bar_chart, 'Analytics', () => Navigator.push(context, MaterialPageRoute(builder: (context) => Analyticspage()))),
+                              _buildNotificationIconButton(user.uid, mediaQuery),
+                              SizedBox(width: mediaQuery.size.width * 0.02),
+                              _buildIconButton(
+                                icon: Icons.person_rounded,
+                                onPressed: () {
+                                  Navigator.push(context, _createRoute(ProfileScreen()));
+                                },
+                              ),
                             ],
                           ),
                         ],
                       ),
+                      SizedBox(height: mediaQuery.size.height * 0.02),
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('Users')
+                            .doc(user.uid)
+                            .collection('transactions')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: _buildSummaryCard('Total Balance', 'Loading...', const Color(0xFF10B981), mediaQuery),
+                                ),
+                                Expanded(
+                                  child: _buildSummaryCard('Total Expense', 'Loading...', const Color(0xFFEF4444), mediaQuery),
+                                ),
+                              ],
+                            );
+                          }
+                          if (snapshot.hasError) {
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: _buildSummaryCard('Total Balance', 'Error', const Color(0xFF10B981), mediaQuery),
+                                ),
+                                Expanded(
+                                  child: _buildSummaryCard('Total Expense', 'Error', const Color(0xFFEF4444), mediaQuery),
+                                ),
+                              ],
+                            );
+                          }
+
+                          double totalBalance = 0.0;
+                          double totalExpense = 0.0;
+
+                          for (final doc in snapshot.data!.docs) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final amountRaw = data['amount'];
+                            final amount = (amountRaw is num
+                                ? amountRaw.toDouble()
+                                : (amountRaw is String ? double.tryParse(amountRaw) ?? 0.0 : 0.0));
+                            if (data['type'] == 'sale') {
+                              totalBalance += amount;
+                            } else if (data['type'] == 'expense') {
+                              totalExpense += amount;
+                            }
+                          }
+
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: _buildSummaryCard('Total Balance', '\रु ${totalBalance.toStringAsFixed(2)}', const Color(0xFF10B981), mediaQuery),
+                              ),
+                              Expanded(
+                                child: _buildSummaryCard('Total Expense', '\रु ${totalExpense.toStringAsFixed(2)}', const Color(0xFFEF4444), mediaQuery),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(mediaQuery.size.width * 0.08),
+                        topRight: Radius.circular(mediaQuery.size.width * 0.08),
+                      ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: SingleChildScrollView(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Recent Transactions',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          Padding(
+                            padding: EdgeInsets.all(mediaQuery.size.width * 0.05),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Quick Links',
+                                  style: GoogleFonts.inter(
+                                    fontSize: mediaQuery.size.width * 0.045,
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF221E22),
+                                  ),
+                                ),
+                                SizedBox(height: mediaQuery.size.height * 0.015),
+                                GridView.count(
+                                  crossAxisCount: 4,
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  mainAxisSpacing: 10,
+                                  crossAxisSpacing: 10,
+                                  childAspectRatio: 1,
+                                  children: [
+                                    _buildQuickLink(Icons.qr_code_scanner, 'Scanner', () => Navigator.push(context, _createRoute(ScanPage()))),
+                                    _buildQuickLink(Icons.person_rounded, 'Seller', () => Navigator.push(context, _createRoute(const SellerPage()))),
+                                    _buildQuickLink(Icons.inventory_2_rounded, 'Inventory', () => Navigator.push(context, _createRoute(const InventoryPage()))),
+                                    _buildQuickLink(Icons.bar_chart_rounded, 'Analytics', () => Navigator.push(context, _createRoute(Analyticspage()))),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
-                          const SizedBox(height: 5),
-                          StreamBuilder<QuerySnapshot>(
-                            stream: FirebaseFirestore.instance
-                                .collection('transactions')
-                                .where('userId', isEqualTo: user.uid)
-                                .orderBy('createdAt', descending: true)
-                                .limit(6)
-                                .snapshots(),
-                            builder: (context, snapshot) {
-                              if (snapshot.connectionState == ConnectionState.waiting) {
-                                return Center(child: CircularProgressIndicator());
-                              }
-                              if (snapshot.hasError) {
-                                return Text('Error: ${snapshot.error}');
-                              }
-                              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                                return Text('No transactions available');
-                              }
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: mediaQuery.size.width * 0.05),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Recent Transactions',
+                                  style: GoogleFonts.inter(
+                                    fontSize: mediaQuery.size.width * 0.045,
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF221E22),
+                                  ),
+                                ),
+                                SizedBox(height: mediaQuery.size.height * 0.01),
+                                StreamBuilder<List<Map<String, dynamic>>>(
+                                  stream: _transactionStream(user.uid),
+                                  builder: (context, snapshot) {
+                                    if (snapshot.connectionState == ConnectionState.waiting) {
+                                      return const Center(child: CircularProgressIndicator());
+                                    }
+                                    if (snapshot.hasError) {
+                                      return Text('Error: ${snapshot.error}');
+                                    }
+                                    if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                                      return Text(
+                                        'No transactions available',
+                                        style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.04),
+                                      );
+                                    }
 
-                              final transactionsByDate = <String, List<QueryDocumentSnapshot>>{};
-                              for (final doc in snapshot.data!.docs) {
-                                final data = doc.data() as Map<String, dynamic>;
-                                final date = (data['date'] as Timestamp).toDate();
-                                final dateStr = DateFormat('MMM d - yyyy').format(date).toUpperCase(); // Uppercase to match screenshot
-                                transactionsByDate.putIfAbsent(dateStr, () => []).add(doc);
-                              }
+                                    final transactionsByDate = <String, List<Map<String, dynamic>>>{};
+                                    for (final txn in snapshot.data!) {
+                                      final date = (txn['date'] as Timestamp?)?.toDate() ?? DateTime.now();
+                                      final dateStr = DateFormat('MMM d - yyyy').format(date).toUpperCase();
+                                      transactionsByDate.putIfAbsent(dateStr, () => []).add(txn);
+                                    }
 
-                              return Column(
-                                children: transactionsByDate.entries.map((dateEntry) {
-                                  final date = dateEntry.key;
-                                  final transactions = dateEntry.value;
-                                  return Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      _transactionDateHeader(date),
-                                      ...transactions.map((doc) {
-                                        final data = doc.data() as Map<String, dynamic>;
-                                        final isIncome = data['type'] == 'sale';
-                                        final amount = data['amount'] as int;
-                                        final title = _buildTransactionTitle(data);
-                                        final timestamp = (data['createdAt'] as Timestamp).toDate();
-                                        final timeStr = DateFormat('dd MMM, HH:mm').format(timestamp);
-                                        return _transactionItem(title, amount, isIncome, timeStr);
+                                    return Column(
+                                      children: transactionsByDate.entries.map((entry) {
+                                        final date = entry.key;
+                                        final transactions = entry.value;
+                                        return Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            _transactionDateHeader(date),
+                                            ...transactions.map((txn) {
+                                              final isSeller = txn['source'] == 'seller';
+                                              final isIncome = !isSeller ? (txn['type'] == 'sale') : false;
+                                              final amount = (txn['amount'] as num?)?.toDouble() ?? 0.0;
+                                              final title = isSeller
+                                                  ? '${txn['itemName']} (${txn['status']}) - ${txn['supplierName']}'
+                                                  : _buildTransactionTitle(txn);
+                                              final createdAt = (txn['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+                                              final timeStr = DateFormat('dd MMM, HH:mm').format(createdAt);
+                                              return _transactionItem(title, amount, isIncome, timeStr);
+                                            }),
+                                          ],
+                                        );
                                       }).toList(),
-                                    ],
-                                  );
-                                }).toList(),
-                              );
-                            },
+                                    );
+                                  },
+                                ),
+                                SizedBox(height: mediaQuery.size.height * 0.02),
+                              ],
+                            ),
                           ),
-                          SizedBox(height: 20),
                         ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showAddSaleDialog(context),
-        backgroundColor: Colors.orange,
-        child: const Icon(Icons.add, color: Colors.white),
+        backgroundColor: const Color(0xFFF97316),
+        child: const Icon(Icons.add_rounded, color: Colors.white),
       ),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: Colors.blue,
-        unselectedItemColor: Colors.grey,
+        selectedItemColor: const Color(0xFF1E3A8A),
+        unselectedItemColor: const Color(0xFF6B7280),
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.inventory_2_sharp), label: 'Inventory'),
-          BottomNavigationBarItem(icon: Icon(Icons.grid_4x4), label: 'Scanner'),
-          BottomNavigationBarItem(icon: Icon(Icons.bookmark), label: 'Transaction'),
-          BottomNavigationBarItem(icon: Icon(Icons.show_chart), label: 'Analytics'),
+          BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.inventory_2_rounded), label: 'Inventory'),
+          BottomNavigationBarItem(icon: Icon(Icons.qr_code_scanner_rounded), label: 'Scanner'),
+          BottomNavigationBarItem(icon: Icon(Icons.receipt_rounded), label: 'Transaction'),
+          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Analytics'),
         ],
       ),
     );
   }
 
-  Widget _buildSummaryCard(String title, String amount, Color color) {
+  Widget _buildIconButton({required IconData icon, required VoidCallback onPressed}) {
+    final mediaQuery = MediaQuery.of(context);
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        padding: EdgeInsets.all(mediaQuery.size.width * 0.02),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          icon,
+          color: Colors.white,
+          size: mediaQuery.size.width * 0.06,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard(String title, String amount, Color color, MediaQueryData mediaQuery) {
     return Container(
-      width: 160,
-      padding: EdgeInsets.all(15),
+      margin: EdgeInsets.symmetric(horizontal: mediaQuery.size.width * 0.01),
+      padding: EdgeInsets.all(mediaQuery.size.width * 0.04),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [BoxShadow(color: Colors.grey, blurRadius: 10)],
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.2),
+            spreadRadius: 2,
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-          SizedBox(height: 3),
-          Text(amount, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+          Text(
+            title,
+            style: GoogleFonts.inter(
+              fontSize: mediaQuery.size.width * 0.03,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF6B7280),
+            ),
+          ),
+          SizedBox(height: mediaQuery.size.height * 0.01),
+          Text(
+            amount,
+            style: GoogleFonts.inter(
+              fontSize: mediaQuery.size.width * 0.035,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildQuickLink(IconData icon, String label, VoidCallback onTap) {
+    final mediaQuery = MediaQuery.of(context);
     return GestureDetector(
       onTap: onTap,
-      child: Column(
-        children: [
-          CircleAvatar(radius: 25, backgroundColor: Colors.orange.shade100, child: Icon(icon, color: Colors.blue)),
-          SizedBox(height: 5),
-          Text(label, style: TextStyle(fontSize: 14)),
-        ],
+      child: AnimatedScale(
+        scale: 1.0,
+        duration: const Duration(milliseconds: 200),
+        child: Container(
+          padding: EdgeInsets.all(mediaQuery.size.width * 0.03),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(15),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.2),
+                spreadRadius: 1,
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: const Color(0xFF1E3A8A),
+                size: mediaQuery.size.width * 0.07,
+              ),
+              SizedBox(height: mediaQuery.size.height * 0.005),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: mediaQuery.size.width * 0.03,
+                  color: const Color(0xFF221E22),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   Widget _transactionDateHeader(String date) {
+    final mediaQuery = MediaQuery.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5), // Adjusted to match screenshot spacing
+      padding: EdgeInsets.symmetric(vertical: mediaQuery.size.height * 0.015),
       child: Text(
         date,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+        style: GoogleFonts.inter(
+          fontSize: mediaQuery.size.width * 0.035,
+          fontWeight: FontWeight.bold,
+          color: const Color(0xFF6B7280),
+        ),
       ),
     );
   }
 
-  Widget _transactionItem(String title, int amount, bool isIncome, String timestamp) {
+  Widget _transactionItem(String title, num amount, bool isIncome, String timestamp) {
+    final mediaQuery = MediaQuery.of(context);
+    final isSeller = title.contains('(') && title.contains(' - ');
+    final displayAmount = isSeller ? amount.toDouble() : (amount.toDouble());
+
     return Card(
+      elevation: 2,
       shape: RoundedRectangleBorder(
-        side: const BorderSide(color: Colors.blue),
-        borderRadius: BorderRadius.circular(14), // Match screenshot
+        borderRadius: BorderRadius.circular(14),
       ),
-      margin: const EdgeInsets.only(bottom: 8), // Match screenshot
+      color: const Color(0xFFFFFFFF),
+      margin: EdgeInsets.symmetric(vertical: mediaQuery.size.height * 0.005),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 12.0), // Match screenshot
+        padding: EdgeInsets.symmetric(
+          vertical: mediaQuery.size.height * 0.015,
+          horizontal: mediaQuery.size.width * 0.04,
+        ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Left side: Empty space to push content slightly to the right
-            const SizedBox(width: 5), // Match screenshot
-
-            // Middle: Product title and transaction type
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    style: GoogleFonts.inter(
+                      fontSize: mediaQuery.size.width * 0.035,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF221E22),
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                   Text(
                     isIncome ? 'Cash In' : 'Cash Out',
-                    style: const TextStyle(fontSize: 12),
+                    style: GoogleFonts.inter(
+                      fontSize: mediaQuery.size.width * 0.03,
+                      color: const Color(0xFF6B7280),
+                    ),
                   ),
                 ],
               ),
             ),
-
-            // Right side: Amount and timestamp
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  (isIncome ? '+\$' : '-\$') + amount.toString(),
-                  style: TextStyle(
-                    fontSize: 14,
+                  (isIncome ? '+ ' : '- ') + 'रु ${displayAmount.toStringAsFixed(2)}',
+                  style: GoogleFonts.inter(
+                    fontSize: mediaQuery.size.width * 0.035,
                     fontWeight: FontWeight.bold,
-                    color: isIncome ? Colors.green : Colors.red,
+                    color: isIncome ? const Color(0xFF10B981) : const Color(0xFFEF4444),
                   ),
                 ),
-                const SizedBox(height: 8),
                 Text(
                   timestamp,
-                  style: const TextStyle(fontSize: 10, color: Colors.grey),
+                  style: GoogleFonts.inter(
+                    fontSize: mediaQuery.size.width * 0.023,
+                    color: const Color(0xFF6B7280),
+                  ),
                 ),
               ],
             ),
-            const SizedBox(width: 5),
           ],
         ),
       ),
@@ -377,34 +659,129 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   String _buildTransactionTitle(Map<String, dynamic> data) {
-    final type = data['type'] as String;
+    final type = data['type'] as String?;
+    if (type == null) return 'Unknown Transaction';
+
     if (type == 'sale') {
       final quantities = data['quantities'] as Map<String, dynamic>? ?? {};
-      final items = quantities.entries.map((e) => '${e.key} (${e.value})').join(', ');
-      return quantities.isNotEmpty ? items : 'Unknown Product';
+      if (quantities.isNotEmpty) {
+        return quantities.entries.map((e) => '${e.key} (${e.value})').join(', ');
+      }
+      return 'Unknown Product';
     } else if (type == 'expense') {
       final description = data['description'] as String? ?? 'Unknown';
-      final quantity = data['quantity'] as int? ?? 0;
-      return '$description (${quantity > 0 ? quantity : ''})';
+      return description;
     }
     return 'Unknown Transaction';
   }
 
+  Stream<List<Map<String, dynamic>>> _transactionStream(String userId) {
+    final transactionsStream = FirebaseFirestore.instance
+        .collection('Users')
+        .doc(userId)
+        .collection('transactions')
+        .orderBy('createdAt', descending: true)
+        .limit(6)
+        .snapshots();
+
+    final ordersStream = FirebaseFirestore.instance
+        .collection('Users')
+        .doc(userId)
+        .collection('Orders')
+        .orderBy('createdAt', descending: true)
+        .limit(6)
+        .snapshots();
+
+    return CombineLatestStream.combine2(
+      transactionsStream,
+      ordersStream,
+          (QuerySnapshot transactions, QuerySnapshot orders) async {
+        final suppliersMap = await _fetchSuppliersMap(userId);
+        List<Map<String, dynamic>> combined = [];
+
+        for (var doc in transactions.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final amountRaw = data['amount'];
+          final amount = amountRaw is num
+              ? amountRaw
+              : (amountRaw is String ? int.tryParse(amountRaw) ?? 0 : 0);
+          combined.add({
+            ...data,
+            'source': 'transaction',
+            'amount': amount,
+            'date': data['date'] as Timestamp? ?? Timestamp.now(),
+            'createdAt': data['createdAt'] as Timestamp? ?? Timestamp.now(),
+          });
+        }
+
+        for (var doc in orders.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final supplierId = data['supplierId'] as String? ?? '';
+          final supplierName = suppliersMap[supplierId] ?? 'Unknown Supplier';
+          final amountRaw = data['purchaseAmount'];
+          final amount = amountRaw is num
+              ? amountRaw
+              : (amountRaw is String ? int.tryParse(amountRaw) ?? 0 : 0);
+          combined.add({
+            ...data,
+            'source': 'seller',
+            'amount': amount,
+            'date': data['createdAt'] as Timestamp? ?? Timestamp.now(),
+            'createdAt': data['createdAt'] as Timestamp? ?? Timestamp.now(),
+            'itemName': data['itemName'] as String? ?? 'Unknown Item',
+            'status': data['status'] as String? ?? 'Unknown',
+            'supplierName': supplierName,
+          });
+        }
+
+        combined.sort((a, b) {
+          final aDate = (a['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+          final bDate = (b['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+          return bDate.compareTo(aDate);
+        });
+
+        return combined.take(6).toList();
+      },
+    ).asyncMap((combined) => combined);
+  }
+
   void _showAddSaleDialog(BuildContext context) {
-    showDialog(
+    showGeneralDialog(
       context: context,
-      builder: (context) => AddSaleDialog(
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, animation, secondaryAnimation) => AddSaleDialog(
         onSwitchToExpense: () => _showAddExpenseDialog(context),
       ),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return ScaleTransition(
+          scale: Tween<double>(begin: 0.5, end: 1.0).animate(
+            CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          ),
+          child: child,
+        );
+      },
     );
   }
 
   void _showAddExpenseDialog(BuildContext context) {
-    showDialog(
+    showGeneralDialog(
       context: context,
-      builder: (context) => AddExpenseDialog(
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, animation, secondaryAnimation) => AddExpenseDialog(
         onSwitchToSale: () => _showAddSaleDialog(context),
       ),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return ScaleTransition(
+          scale: Tween<double>(begin: 0.8, end: 1.0).animate(
+            CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          ),
+          child: child,
+        );
+      },
     );
   }
 }
@@ -412,88 +789,243 @@ class _DashboardPageState extends State<DashboardPage> {
 class AddSaleDialog extends StatefulWidget {
   final VoidCallback onSwitchToExpense;
 
-  AddSaleDialog({super.key, required this.onSwitchToExpense});
+  const AddSaleDialog({super.key, required this.onSwitchToExpense});
 
   @override
   State<AddSaleDialog> createState() => _AddSaleDialogState();
 }
 
 class _AddSaleDialogState extends State<AddSaleDialog> {
-  String? _selectedCategory;
+  final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _customProductController = TextEditingController();
+  final TextEditingController _customQuantityController = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
   final Map<String, int> _quantities = {};
-  final _manualEntryController = TextEditingController();
-  final _manualQuantityController = TextEditingController();
-  final _amountController = TextEditingController(text: '3000');
+  final Map<String, TextEditingController> _quantityControllers = {};
+  List<Map<String, dynamic>> _allProducts = [];
+  List<Map<String, dynamic>> _filteredProducts = [];
+  String? _errorMessage;
+  bool _isChecklistExpanded = false;
+  bool _showCustomFields = false;
+  bool _isManualAmount = false;
 
-  Future<List<Map<String, dynamic>>> _fetchProducts() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance.collection('Inventory').get();
-      final products = snapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        return {
-          'category': data['category'] as String? ?? 'Uncategorized',
-          'name': data['productName'] as String? ?? 'Unnamed Product',
-        };
-      }).toList();
-
-      final groupedProducts = <String, List<String>>{};
-      for (var product in products) {
-        groupedProducts.putIfAbsent(product['category'] as String, () => []).add(product['name'] as String);
+  @override
+  void initState() {
+    super.initState();
+    _fetchAllProducts();
+    _searchController.addListener(() {
+      _filterProducts(_searchController.text);
+    });
+    _amountController.addListener(() {
+      final amountText = _amountController.text;
+      if (amountText.isNotEmpty && double.tryParse(amountText) == null) {
+        setState(() {
+          _errorMessage = 'Please enter a valid sales amount';
+        });
+      } else {
+        setState(() {
+          _errorMessage = null;
+          _isManualAmount = true;
+        });
       }
-      return groupedProducts.entries.map((entry) => {'name': entry.key, 'items': entry.value}).toList();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error fetching products: $e')));
-      return [
-        {'name': 'Food', 'items': ['Noodles', 'Noodles', 'Noodles']},
-        {'name': 'Fruits', 'items': ['Noodles', 'Noodles', 'Noodles']},
-      ];
-    }
-  }
-
-  void _updateQuantity(String item, int delta) {
-    setState(() {
-      _quantities[item] = (_quantities[item] ?? 0) + delta;
-      if (_quantities[item]! < 0) _quantities[item] = 0;
     });
   }
 
+  Future<void> _fetchAllProducts() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final snapshot = await FirebaseFirestore.instance
+          .collection('Users')
+          .doc(user.uid)
+          .collection('Inventory')
+          .get();
+      if (!mounted) return;
+      setState(() {
+        _allProducts = snapshot.docs.map((doc) {
+          final data = doc.data();
+          return {
+            'id': doc.id,
+            'category': data['category'] as String? ?? 'Uncategorized',
+            'name': data['productName'] as String? ?? 'Unnamed Product',
+            'quantity': (data['quantity'] as num?)?.toInt() ?? 0,
+            'price': (data['price'] as num?)?.toDouble() ?? 0.0,
+            'sellingPrice': (data['sellingPrice'] as num?)?.toDouble() ?? 0.0,
+          };
+        }).toList();
+        _filteredProducts = _allProducts;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error fetching products: $e')));
+      }
+    }
+  }
+
+  void _filterProducts(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _filteredProducts = _allProducts;
+      } else {
+        _filteredProducts = _allProducts.where((product) {
+          final name = (product['name'] as String).toLowerCase();
+          final category = (product['category'] as String).toLowerCase();
+          final queryLower = query.toLowerCase();
+          return name.contains(queryLower) || category.contains(queryLower);
+        }).toList();
+      }
+    });
+  }
+
+  void _updateQuantities() {
+    setState(() {
+      _errorMessage = null;
+      _quantityControllers.forEach((itemName, controller) {
+        final value = controller.text;
+        final newQuantity = int.tryParse(value) ?? 0;
+        if (value.isNotEmpty && (newQuantity < 0 || int.tryParse(value) == null)) {
+          _errorMessage = 'Please enter a valid non-negative quantity for $itemName';
+          return;
+        }
+        if (newQuantity > 0) {
+          _quantities[itemName] = newQuantity;
+        } else {
+          _quantities.remove(itemName);
+        }
+      });
+
+      if (!_isManualAmount) {
+        double totalAmount = 0.0;
+        for (var entry in _quantities.entries) {
+          final productName = entry.key;
+          final quantity = entry.value;
+          final product = _allProducts.firstWhere(
+                (p) => p['name'] == productName,
+            orElse: () => <String, Object>{'sellingPrice': 0.0},
+          );
+          final sellingPrice = (product['sellingPrice'] as num?)?.toDouble() ?? 0.0;
+          totalAmount += quantity * sellingPrice;
+        }
+        _amountController.text = totalAmount.toStringAsFixed(2);
+      }
+    });
+  }
+
+  void _addCustomProduct() {
+    final customProduct = _customProductController.text;
+    final customQtyText = _customQuantityController.text;
+    final customQty = int.tryParse(customQtyText) ?? 0;
+
+    if (customProduct.isEmpty) {
+      setState(() {
+        _errorMessage = 'Please enter a product name for custom entry';
+      });
+      return;
+    }
+    if (customQtyText.isNotEmpty && (customQty <= 0 || int.tryParse(customQtyText) == null)) {
+      setState(() {
+        _errorMessage = 'Please enter a valid positive quantity for custom entry';
+      });
+      return;
+    }
+    if (customProduct.isNotEmpty && customQty > 0) {
+      setState(() {
+        _quantities[customProduct] = (_quantities[customProduct] ?? 0) + customQty;
+        _customProductController.clear();
+        _customQuantityController.clear();
+        _errorMessage = null;
+        _isManualAmount = false;
+        _updateQuantities();
+      });
+    }
+  }
+
   Future<void> _saveSale() async {
-    if (_selectedCategory == null && _manualEntryController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please select a category or manual entry')));
+    if (_quantities.isEmpty || _quantities.values.every((qty) => qty == 0)) {
+      setState(() {
+        _errorMessage = 'Please select products and enter quantities';
+      });
       return;
     }
 
-    final amount = int.tryParse(_amountController.text) ?? 0;
-    if (amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please enter a valid amount')));
-      return;
-    }
-
-    final manualQuantity = int.tryParse(_manualQuantityController.text) ?? 0;
-    if (_manualEntryController.text.isNotEmpty && manualQuantity <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please enter a valid quantity for manual entry')));
+    final amountText = _amountController.text;
+    if (amountText.isEmpty || double.tryParse(amountText) == null) {
+      setState(() {
+        _errorMessage = 'Please enter a valid amount';
+      });
       return;
     }
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('User not authenticated. Please log in.')));
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoginPage()));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('User not authenticated. Please log in.')));
+        Navigator.pushReplacement(
+            context, MaterialPageRoute(builder: (context) => const LoginPage()));
+      }
       return;
     }
 
     try {
       final date = DateTime.now();
-      final quantities = {..._quantities};
-      if (_manualEntryController.text.isNotEmpty) {
-        quantities[_manualEntryController.text] = manualQuantity;
+      final inventorySnapshot = await FirebaseFirestore.instance
+          .collection('Users')
+          .doc(user.uid)
+          .collection('Inventory')
+          .get();
+
+      final inventoryMap = <String, Map<String, dynamic>>{};
+      for (var doc in inventorySnapshot.docs) {
+        final data = doc.data();
+        final quantity = (data['quantity'] as num?)?.toInt() ?? 0;
+        inventoryMap[data['productName']] = {
+          'id': doc.id,
+          'quantity': quantity,
+          'category': data['category'],
+        };
       }
 
-      await FirebaseFirestore.instance.collection('transactions').add({
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (var entry in _quantities.entries) {
+        final productName = entry.key;
+        final quantitySold = entry.value;
+
+        if (inventoryMap.containsKey(productName) && quantitySold > 0) {
+          final inventoryItem = inventoryMap[productName]!;
+          final newQuantity = inventoryItem['quantity'] - quantitySold;
+          if (newQuantity < 0) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Insufficient stock for $productName')),
+              );
+            }
+            return;
+          }
+          final inventoryRef = FirebaseFirestore.instance
+              .collection('Users')
+              .doc(user.uid)
+              .collection('Inventory')
+              .doc(inventoryItem['id']);
+          batch.update(inventoryRef, {'quantity': newQuantity});
+        }
+      }
+
+      await batch.commit();
+
+      final amountInCents = (double.parse(amountText)).toInt();
+
+      await FirebaseFirestore.instance
+          .collection('Users')
+          .doc(user.uid)
+          .collection('transactions')
+          .add({
         'type': 'sale',
-        'amount': amount,
-        'category': _selectedCategory ?? _manualEntryController.text,
-        'quantities': quantities,
+        'amount': amountInCents,
+        'category': 'Sale',
+        'quantities': _quantities,
         'date': Timestamp.fromDate(date),
         'userId': user.uid,
         'createdAt': FieldValue.serverTimestamp(),
@@ -501,137 +1033,452 @@ class _AddSaleDialogState extends State<AddSaleDialog> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sale saved successfully')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Sale saved successfully')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving sale: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error processing sale: $e')));
       }
     }
   }
 
   @override
   void dispose() {
-    _manualEntryController.dispose();
-    _manualQuantityController.dispose();
     _amountController.dispose();
+    _customProductController.dispose();
+    _customQuantityController.dispose();
+    _searchController.dispose();
+    _quantityControllers.forEach((_, controller) => controller.dispose());
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final groupedProducts = _filteredProducts.fold<Map<String, List<Map<String, dynamic>>>>(
+      {},
+          (map, product) {
+        final category = (product['category'] as String).trim().toLowerCase();
+        map.putIfAbsent(category, () => []).add(product);
+        return map;
+      },
+    );
+
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: Colors.white,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
-        padding: EdgeInsets.all(20),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(child: Text('SALES', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold))),
-              SizedBox(height: 5),
-              Text(DateFormat('dd MMM').format(DateTime.now()), style: TextStyle(fontSize: 16, color: Colors.grey)),
-              SizedBox(height: 5),
-              TextField(
-                controller: _amountController,
-                decoration: InputDecoration(labelText: 'Sales amount', border: OutlineInputBorder(borderRadius: BorderRadius.circular(20))),
-                keyboardType: TextInputType.number,
-              ),
-              SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  ElevatedButton(
-                    onPressed: () {},
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, shape: StadiumBorder()),
-                    child: Text('Sale'),
+        constraints: const BoxConstraints(maxWidth: 380, maxHeight: 560),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Add Sale',
+                  style: GoogleFonts.inter(
+                    fontSize: mediaQuery.size.width * 0.045,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1E3A8A),
                   ),
-                  SizedBox(width: 10),
-                  ElevatedButton(
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20, color: Color(0xFF6B7280)),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              DateFormat('dd MMM yyyy').format(DateTime.now()),
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.03,
+                color: const Color(0xFF6B7280),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search products...',
+                hintStyle: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.03, color: const Color(0xFF6B7280)),
+                prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF6B7280)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                isDense: true,
+              ),
+              style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.035),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Selected (${_quantities.length})',
+                    style: GoogleFonts.inter(
+                      fontSize: mediaQuery.size.width * 0.035,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF221E22),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    _isChecklistExpanded ? Icons.expand_less : Icons.expand_more,
+                    size: 20,
+                    color: const Color(0xFF6B7280),
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _isChecklistExpanded = !_isChecklistExpanded;
+                    });
+                  },
+                ),
+              ],
+            ),
+            if (_isChecklistExpanded) ...[
+              Container(
+                constraints: BoxConstraints(maxHeight: mediaQuery.size.height * 0.15),
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: _quantities.entries.map((entry) {
+                      return Card(
+                        elevation: 2,
+                        color: const Color(0xFFFFFFFF),
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    entry.key,
+                                    style: GoogleFonts.inter(
+                                      fontSize: mediaQuery.size.width * 0.035,
+                                      fontWeight: FontWeight.w600,
+                                      color: const Color(0xFF221E22),
+                                    ),
+                                  ),
+                                  Text(
+                                    'Qty: ${entry.value}',
+                                    style: GoogleFonts.inter(
+                                      fontSize: mediaQuery.size.width * 0.03,
+                                      color: const Color(0xFF6B7280),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete, size: 18, color: Color(0xFFEF4444)),
+                                onPressed: () {
+                                  setState(() {
+                                    _quantities.remove(entry.key);
+                                    _quantityControllers[entry.key]?.text = '0';
+                                    _updateQuantities();
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _showCustomFields = !_showCustomFields;
+                });
+              },
+              child: Text(
+                '+ Add Custom Product',
+                style: GoogleFonts.inter(
+                  fontSize: mediaQuery.size.width * 0.03,
+                  color: const Color(0xFF1E3A8A),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (_showCustomFields) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _customProductController,
+                      decoration: InputDecoration(
+                        labelText: 'Product',
+                        labelStyle: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.03, color: const Color(0xFF6B7280)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                        isDense: true,
+                      ),
+                      style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.035),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 80,
+                    child: TextField(
+                      controller: _customQuantityController,
+                      decoration: InputDecoration(
+                        labelText: 'Qty',
+                        labelStyle: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.03, color: const Color(0xFF6B7280)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                        isDense: true,
+                      ),
+                      style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.035),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle, size: 20, color: Color(0xFF10B981)),
+                    onPressed: _addCustomProduct,
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 12),
+            Expanded(
+              child: groupedProducts.isEmpty
+                  ? Center(
+                child: Text(
+                  'No products found',
+                  style: GoogleFonts.inter(
+                    fontSize: mediaQuery.size.width * 0.04,
+                    color: const Color(0xFF6B7280),
+                  ),
+                ),
+              )
+                  : SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: groupedProducts.entries.map((entry) {
+                    final category = entry.key;
+                    final products = entry.value;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          category[0].toUpperCase() + category.substring(1),
+                          style: GoogleFonts.inter(
+                            fontSize: mediaQuery.size.width * 0.04,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF6B7280),
+                          ),
+                        ),
+                        SizedBox(height: mediaQuery.size.height * 0.01),
+                        ...products.map((product) {
+                          final itemName = product['name'] as String;
+                          _quantityControllers.putIfAbsent(
+                              itemName,
+                                  () => TextEditingController(
+                                  text: (_quantities[itemName] ?? 0).toString()));
+                          return Card(
+                            elevation: 2,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            color: const Color(0xFFFFFFFF),
+                            margin: EdgeInsets.symmetric(vertical: mediaQuery.size.height * 0.005),
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(
+                                vertical: mediaQuery.size.height * 0.015,
+                                horizontal: mediaQuery.size.width * 0.04,
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          itemName,
+                                          style: GoogleFonts.inter(
+                                            fontSize: mediaQuery.size.width * 0.035,
+                                            fontWeight: FontWeight.w600,
+                                            color: const Color(0xFF221E22),
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        Text(
+                                          'Stock: ${product['quantity']}',
+                                          style: GoogleFonts.inter(
+                                            fontSize: mediaQuery.size.width * 0.03,
+                                            color: const Color(0xFF6B7280),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.remove_circle_outline_rounded,
+                                            color: Color(0xFFEF4444), size: 20),
+                                        onPressed: () {
+                                          final current = int.tryParse(_quantityControllers[itemName]!.text) ?? 0;
+                                          if (current > 0) {
+                                            _quantityControllers[itemName]!.text = (current - 1).toString();
+                                            _isManualAmount = false;
+                                            _updateQuantities();
+                                          }
+                                        },
+                                      ),
+                                      SizedBox(
+                                        width: 36,
+                                        child: TextField(
+                                          controller: _quantityControllers[itemName],
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.035),
+                                          keyboardType: TextInputType.number,
+                                          onChanged: (value) {
+                                            _isManualAmount = false;
+                                            _updateQuantities();
+                                          },
+                                          decoration: const InputDecoration(
+                                            border: InputBorder.none,
+                                            contentPadding: EdgeInsets.zero,
+                                            isDense: true,
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.add_circle_outline_rounded,
+                                            color: Color(0xFF10B981), size: 20),
+                                        onPressed: () {
+                                          final current = int.tryParse(_quantityControllers[itemName]!.text) ?? 0;
+                                          _quantityControllers[itemName]!.text = (current + 1).toString();
+                                          _isManualAmount = false;
+                                          _updateQuantities();
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
+                        SizedBox(height: mediaQuery.size.height * 0.02),
+                      ],
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _amountController,
+              decoration: InputDecoration(
+                labelText: 'Amount',
+                labelStyle: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.03, color: const Color(0xFF6B7280)),
+                prefixText: '\रु ',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                isDense: true,
+              ),
+              style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.035),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _errorMessage!,
+                style: GoogleFonts.inter(
+                  fontSize: mediaQuery.size.width * 0.03,
+                  color: const Color(0xFFEF4444),
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
                     onPressed: () {
                       Navigator.pop(context);
                       widget.onSwitchToExpense();
                     },
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red, shape: StadiumBorder()),
-                    child: Text('Expense'),
-                  ),
-                ],
-              ),
-              SizedBox(height: 20),
-              FutureBuilder<List<Map<String, dynamic>>>(
-                future: _fetchProducts(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError) {
-                    return Text('Error: ${snapshot.error}');
-                  }
-                  final categories = snapshot.data ?? [];
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      DropdownButtonFormField<String>(
-                        value: _selectedCategory,
-                        hint: Text('Category'),
-                        items: categories.map((category) => DropdownMenuItem<String>(value: category['name'] as String, child: Text(category['name'] as String))).toList(),
-                        onChanged: (value) => setState(() => _selectedCategory = value),
-                        decoration: InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(20))),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFEF4444),
+                      side: const BorderSide(color: Color(0xFFEF4444)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      SizedBox(height: 10),
-                      ...categories.expand((category) {
-                        if (_selectedCategory != category['name']) return [];
-                        return (category['items'] as List<String>).map((item) => Padding(
-                          padding: EdgeInsets.symmetric(vertical: 5),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(item),
-                              Row(
-                                children: [
-                                  IconButton(icon: Icon(Icons.remove_circle_outline), onPressed: () => _updateQuantity(item, -1)),
-                                  Text(_quantities[item]?.toString() ?? '0'),
-                                  IconButton(icon: Icon(Icons.add_circle_outline), onPressed: () => _updateQuantity(item, 1)),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ));
-                      }),
-                    ],
-                  );
-                },
-              ),
-              SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _manualEntryController,
-                      decoration: InputDecoration(labelText: 'Manual Entry', border: OutlineInputBorder(borderRadius: BorderRadius.circular(20))),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: Text(
+                      'Expense',
+                      style: GoogleFonts.inter(
+                        fontSize: mediaQuery.size.width * 0.035,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: TextField(
-                      controller: _manualQuantityController,
-                      decoration: InputDecoration(labelText: 'Quantity', border: OutlineInputBorder(borderRadius: BorderRadius.circular(20))),
-                      keyboardType: TextInputType.number,
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 20),
-              Center(
-                child: ElevatedButton(
-                  onPressed: _saveSale,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), padding: EdgeInsets.symmetric(horizontal: 30, vertical: 15)),
-                  child: Text('Save', style: TextStyle(fontSize: 16, color: Colors.white)),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _saveSale,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF97316),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: Text(
+                      'Save',
+                      style: GoogleFonts.inter(
+                        fontSize: mediaQuery.size.width * 0.035,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -641,49 +1488,82 @@ class _AddSaleDialogState extends State<AddSaleDialog> {
 class AddExpenseDialog extends StatefulWidget {
   final VoidCallback onSwitchToSale;
 
-  AddExpenseDialog({super.key, required this.onSwitchToSale});
+  const AddExpenseDialog({super.key, required this.onSwitchToSale});
 
   @override
   State<AddExpenseDialog> createState() => _AddExpenseDialogState();
 }
 
 class _AddExpenseDialogState extends State<AddExpenseDialog> {
-  final _descriptionController = TextEditingController();
-  final _quantityController = TextEditingController();
-  final _amountController = TextEditingController(text: '3000');
+  final _amountController = TextEditingController(text: '1.00');
+  final List<Map<String, TextEditingController>> _expenseFields = [
+    {
+      'description': TextEditingController(),
+      'quantity': TextEditingController(),
+    },
+  ];
+  bool _showAddMoreFields = false;
+
+  void _addExpenseField() {
+    setState(() {
+      _expenseFields.add({
+        'description': TextEditingController(),
+        'quantity': TextEditingController(),
+      });
+    });
+  }
 
   Future<void> _saveExpense() async {
-    if (_descriptionController.text.isEmpty || _quantityController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please fill all fields')));
-      return;
+    final expenses = <String, int>{};
+    for (var field in _expenseFields) {
+      final description = field['description']!.text.trim();
+      final quantityText = field['quantity']!.text.trim();
+      if (description.isEmpty || quantityText.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all fields')));
+        }
+        return;
+      }
+      final quantity = int.tryParse(quantityText);
+      if (quantity == null || quantity <= 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a valid quantity')));
+        }
+        return;
+      }
+      expenses[description] = quantity;
     }
 
-    final amount = int.tryParse(_amountController.text) ?? 0;
-    final quantity = int.tryParse(_quantityController.text);
-    if (amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please enter a valid amount')));
-      return;
-    }
-    if (quantity == null || quantity < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please enter a valid quantity')));
+    final amountText = _amountController.text;
+    if (amountText.isEmpty || double.tryParse(amountText) == null || double.parse(amountText) <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a valid amount')));
+      }
       return;
     }
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('User not authenticated. Please log in.')));
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoginPage()));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User not authenticated. Please log in.')));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const LoginPage()));
+      }
       return;
     }
 
     try {
       final date = DateTime.now();
+      final description = expenses.entries.map((e) => '${e.key} (${e.value})').join(', ');
+      final amountInCents = (double.parse(amountText)).toInt();
 
-      await FirebaseFirestore.instance.collection('transactions').add({
+      await FirebaseFirestore.instance
+          .collection('Users')
+          .doc(user.uid)
+          .collection('transactions')
+          .add({
         'type': 'expense',
-        'amount': amount,
-        'description': _descriptionController.text,
-        'quantity': quantity,
+        'amount': amountInCents,
+        'description': description,
         'date': Timestamp.fromDate(date),
         'userId': user.uid,
         'createdAt': FieldValue.serverTimestamp(),
@@ -691,7 +1571,7 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Expense saved successfully')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Expense saved successfully')));
       }
     } catch (e) {
       if (mounted) {
@@ -702,71 +1582,226 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
 
   @override
   void dispose() {
-    _descriptionController.dispose();
-    _quantityController.dispose();
     _amountController.dispose();
+    for (var field in _expenseFields) {
+      field['description']!.dispose();
+      field['quantity']!.dispose();
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: Colors.white,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
-        padding: EdgeInsets.all(20),
+        constraints: const BoxConstraints(maxWidth: 380, maxHeight: 560),
+        padding: const EdgeInsets.all(16),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(child: Text('EXPENSE', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold))),
-              SizedBox(height: 10),
-              Text(DateFormat('dd MMM').format(DateTime.now()), style: TextStyle(fontSize: 16, color: Colors.grey)),
-              SizedBox(height: 20),
-              TextField(
-                controller: _amountController,
-                decoration: InputDecoration(labelText: 'Debit amount', border: OutlineInputBorder(borderRadius: BorderRadius.circular(20))),
-                keyboardType: TextInputType.number,
-              ),
-              SizedBox(height: 20),
               Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      widget.onSwitchToSale();
-                    },
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, shape: StadiumBorder()),
-                    child: Text('Sale'),
+                  Text(
+                    'Add Expense',
+                    style: GoogleFonts.inter(
+                      fontSize: mediaQuery.size.width * 0.045,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF1E3A8A),
+                    ),
                   ),
-                  SizedBox(width: 10),
-                  ElevatedButton(
-                    onPressed: () {},
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red, shape: StadiumBorder()),
-                    child: Text('Expense'),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20, color: Color(0xFF6B7280)),
+                    onPressed: () => Navigator.pop(context),
                   ),
                 ],
               ),
-              SizedBox(height: 20),
-              TextField(
-                controller: _descriptionController,
-                decoration: InputDecoration(labelText: 'Write Expenses you did.', border: OutlineInputBorder(borderRadius: BorderRadius.circular(20))),
-                maxLines: 3,
-              ),
-              SizedBox(height: 20),
-              TextField(
-                controller: _quantityController,
-                decoration: InputDecoration(labelText: 'Quantity', border: OutlineInputBorder(borderRadius: BorderRadius.circular(20))),
-                keyboardType: TextInputType.number,
-              ),
-              SizedBox(height: 20),
-              Center(
-                child: ElevatedButton(
-                  onPressed: _saveExpense,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), padding: EdgeInsets.symmetric(horizontal: 30, vertical: 15)),
-                  child: Text('Save', style: TextStyle(fontSize: 16, color: Colors.white)),
+              const SizedBox(height: 8),
+              Text(
+                DateFormat('dd MMM yyyy').format(DateTime.now()),
+                style: GoogleFonts.inter(
+                  fontSize: mediaQuery.size.width * 0.03,
+                  color: const Color(0xFF6B7280),
                 ),
+              ),
+              const SizedBox(height: 12),
+              ..._expenseFields.asMap().entries.map((entry) {
+                final index = entry.key;
+                final field = entry.value;
+                return Padding(
+                  padding: EdgeInsets.only(bottom: mediaQuery.size.height * 0.01),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: TextField(
+                          controller: field['description'],
+                          decoration: InputDecoration(
+                            labelText: 'Description',
+                            labelStyle: GoogleFonts.inter(
+                                fontSize: mediaQuery.size.width * 0.03, color: const Color(0xFF6B7280)),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                            isDense: true,
+                          ),
+                          style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.035),
+                        ),
+                      ),
+                      SizedBox(width: mediaQuery.size.width * 0.02),
+                      Expanded(
+                        flex: 2,
+                        child: TextField(
+                          controller: field['quantity'],
+                          decoration: InputDecoration(
+                            labelText: 'Qty',
+                            labelStyle: GoogleFonts.inter(
+                                fontSize: mediaQuery.size.width * 0.03, color: const Color(0xFF6B7280)),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                            isDense: true,
+                          ),
+                          style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.035),
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      if (index > 0)
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_rounded, color: Color(0xFFEF4444), size: 18),
+                          onPressed: () {
+                            setState(() {
+                              _expenseFields.removeAt(index);
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                );
+              }),
+              SizedBox(height: mediaQuery.size.height * 0.01),
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _showAddMoreFields = !_showAddMoreFields;
+                    if (_showAddMoreFields) {
+                      _addExpenseField();
+                    }
+                  });
+                },
+                child: Text(
+                  '+ Add More',
+                  style: GoogleFonts.inter(
+                    fontSize: mediaQuery.size.width * 0.03,
+                    color: const Color(0xFF1E3A8A),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              SizedBox(height: mediaQuery.size.height * 0.01),
+              TextField(
+                controller: _amountController,
+                decoration: InputDecoration(
+                  labelText: 'Debit amount',
+                  labelStyle: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.03, color: const Color(0xFF6B7280)),
+                  prefixText: '\रु ',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                  isDense: true,
+                ),
+                style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.035),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onTap: () {
+                  if (_amountController.text == '1.00') {
+                    _amountController.clear();
+                  }
+                },
+              ),
+              SizedBox(height: mediaQuery.size.height * 0.01),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        widget.onSwitchToSale();
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF10B981),
+                        side: const BorderSide(color: Color(0xFF10B981)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Text(
+                        'Sale',
+                        style: GoogleFonts.inter(
+                          fontSize: mediaQuery.size.width * 0.035,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _saveExpense,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF97316),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Text(
+                        'Save',
+                        style: GoogleFonts.inter(
+                          fontSize: mediaQuery.size.width * 0.035,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

@@ -1,8 +1,10 @@
+import 'package:arthikapp/Screens/Scanpage.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import 'dashboard.dart'; // Assuming DashboardPage is in dashboard.dart
+import 'package:google_fonts/google_fonts.dart';
+import 'dashboard.dart';
 import 'transaction.dart';
 import 'sellerpage.dart';
 import 'analyticspage.dart';
@@ -16,7 +18,8 @@ class InventoryPage extends StatefulWidget {
 }
 
 class _InventoryPageState extends State<InventoryPage> {
-  int _selectedIndex = 1; // Inventory is the second item (index 1)
+  int _selectedIndex = 1;
+  Timestamp? _lastOrderChecked;
 
   void _onItemTapped(int index) {
     setState(() {
@@ -24,172 +27,552 @@ class _InventoryPageState extends State<InventoryPage> {
     });
     switch (index) {
       case 0:
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => DashboardPage()));
+        Navigator.pushReplacement(context, _createRoute(const DashboardPage()));
         break;
       case 1:
-      // Already on Inventory
         break;
       case 2:
-      // Scanner page not implemented
+        Navigator.pushReplacement(context, _createRoute(const ScanPage()));
         break;
       case 3:
-        Navigator.push(context, MaterialPageRoute(builder: (context) => Transactionpage()));
+        Navigator.push(context, _createRoute(const Transactionpage()));
         break;
       case 4:
-        Navigator.push(context, MaterialPageRoute(builder: (context) => Analyticspage()));
+        Navigator.push(context, _createRoute(const Analyticspage()));
         break;
+    }
+  }
+
+  Route _createRoute(Widget page) {
+    return PageRouteBuilder(
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        const begin = Offset(1.0, 0.0);
+        const end = Offset.zero;
+        const curve = Curves.easeInOut;
+        var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+        return SlideTransition(
+          position: animation.drive(tween),
+          child: child,
+        );
+      },
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLastOrderChecked();
+  }
+
+  Future<void> _loadLastOrderChecked() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      print('No user logged in');
+      return;
+    }
+    try {
+      print('Fetching inventory_settings for user: ${user.uid}');
+      final doc = await FirebaseFirestore.instance
+          .collection('Users')
+          .doc(user.uid)
+          .collection('Metadata')
+          .doc('inventory_settings')
+          .get();
+      print('Document exists: ${doc.exists}, Data: ${doc.data()}');
+      if (doc.exists && doc.data() != null && mounted) {
+        setState(() {
+          _lastOrderChecked = doc.data()!['lastOrderChecked'] as Timestamp?;
+        });
+      }
+      await _checkForNewOrders();
+    } catch (e) {
+      print('Error in _loadLastOrderChecked: $e');
+      _showSnackBar('Error loading inventory settings: $e');
+    }
+  }
+
+  Future<void> _checkForNewOrders() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      print('No user logged in');
+      return;
+    }
+    try {
+      QuerySnapshot ordersSnapshot;
+      if (_lastOrderChecked != null) {
+        ordersSnapshot = await FirebaseFirestore.instance
+            .collection('Users')
+            .doc(user.uid)
+            .collection('Orders')
+            .where('createdAt', isGreaterThan: _lastOrderChecked)
+            .orderBy('createdAt')
+            .get();
+      } else {
+        ordersSnapshot = await FirebaseFirestore.instance
+            .collection('Users')
+            .doc(user.uid)
+            .collection('Orders')
+            .orderBy('createdAt')
+            .get();
+      }
+
+      print('New orders found: ${ordersSnapshot.docs.length}');
+      if (ordersSnapshot.docs.isNotEmpty && mounted) {
+        _showAddToInventoryPopup(ordersSnapshot.docs);
+        final latestOrder = ordersSnapshot.docs.last.data() as Map<
+            String,
+            dynamic>;
+        final latestTimestamp = latestOrder['createdAt'] as Timestamp;
+        await FirebaseFirestore.instance
+            .collection('Users')
+            .doc(user.uid)
+            .collection('Metadata')
+            .doc('inventory_settings')
+            .set(
+            {'lastOrderChecked': latestTimestamp}, SetOptions(merge: true));
+        if (mounted) {
+          setState(() {
+            _lastOrderChecked = latestTimestamp;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error in _checkForNewOrders: $e');
+      _showSnackBar('Error checking for new orders: $e');
+    }
+  }
+
+  @override
+  void dispose(){
+    super.dispose();
+  }
+
+  void _showAddToInventoryPopup(List<QueryDocumentSnapshot> orders) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, animation, secondaryAnimation) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Text(
+          'Add Products to Inventory',
+          style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: const Color(0xFF1E3A8A)),
+        ),
+        content: Text(
+          'Do you want to add products you bought from sellers to your inventory?',
+          style: GoogleFonts.inter(fontSize: 16, color: const Color(0xFFEF4444)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF6B7280)),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              await _addAllToInventory(orders);
+              Navigator.pop(context);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFF97316),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text(
+              'Add All',
+              style: GoogleFonts.inter(fontSize: 14, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return ScaleTransition(
+          scale: Tween<double>(begin: 0.8, end: 1.0).animate(
+            CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          ),
+          child: child,
+        );
+      },
+    );
+  }
+
+  Future<void> _addAllToInventory(List<QueryDocumentSnapshot> orders) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _showSnackBar('User not logged in');
+      return;
+    }
+
+    try {
+      final inventorySnapshot = await FirebaseFirestore.instance
+          .collection('Users')
+          .doc(user.uid)
+          .collection('Inventory')
+          .get();
+
+      final existingProducts = inventorySnapshot.docs.map((doc) {
+        final data = doc.data();
+        return '${data['productName']}-${data['category']}';
+      }).toSet();
+
+      final batch = FirebaseFirestore.instance.batch();
+      int addedCount = 0;
+
+      for (var order in orders) {
+        final orderData = order.data() as Map<String, dynamic>;
+        final productKey = '${orderData['itemName']}-${orderData['category']}';
+
+        if (!existingProducts.contains(productKey)) {
+          final productAmount = orderData['productAmount'] is String
+              ? double.tryParse(orderData['productAmount']) ?? 0.0
+              : (orderData['productAmount'] as num?)?.toDouble() ?? 0.0;
+          final sellingPrice = orderData['sellingPrice'] is String
+              ? double.tryParse(orderData['sellingPrice']) ?? 0.0
+              : (orderData['sellingPrice'] as num?)?.toDouble() ?? 0.0;
+          final quantity = (orderData['quantity'] as num?)?.toInt() ?? 0;
+          final date = orderData['date'] != null
+              ? Timestamp.fromDate(DateTime.parse(orderData['date']))
+              : Timestamp.now();
+
+          final inventoryRef = FirebaseFirestore.instance
+              .collection('Users')
+              .doc(user.uid)
+              .collection('Inventory')
+              .doc();
+          batch.set(inventoryRef, {
+            'type': 'in',
+            'productName': orderData['itemName']?.toString() ?? 'Unnamed Product',
+            'category': orderData['category']?.toString().toLowerCase() ?? 'uncategorized',
+            'quantity': quantity,
+            'price': productAmount,
+            'sellingPrice': sellingPrice,
+            'date': date,
+            'createdAt': FieldValue.serverTimestamp(),
+            'userId': user.uid,
+          });
+          addedCount++;
+          existingProducts.add(productKey);
+        }
+      }
+
+      if (addedCount > 0) {
+        await batch.commit();
+        if (mounted) {
+          _showSnackBar('$addedCount product(s) added to inventory');
+        }
+      } else {
+        if (mounted) {
+          _showSnackBar('No new products to add');
+        }
+      }
+    } catch (e) {
+      print('Error in _addAllToInventory: $e');
+      _showSnackBar('Error adding products to inventory: $e');
+    }
+  }
+
+  void _showSnackBar(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
+    final mediaQuery = MediaQuery.of(context);
+
     if (user == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoginPage()));
+        Navigator.pushReplacement(context, _createRoute(const LoginPage()));
       });
-      return Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Container(
+              height: mediaQuery.size.height * 0.30,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF1E3A8A), Color(0xFFFFFFFF)],
+                ),
+              ),
+            ),
+            Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.all(mediaQuery.size.width * 0.05),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    children: [
+                      GestureDetector(
+                        onTap: () => Navigator.pushReplacement(
+                          context,
+                          _createRoute(const DashboardPage()),
+                        ),
+                        child: Container(
+                          padding: EdgeInsets.all(mediaQuery.size.width * 0.02),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.arrow_back_rounded,
+                            color: Colors.white,
+                            size: mediaQuery.size.width * 0.06,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: mediaQuery.size.width * 0.03),
+                      Text(
+                        'Inventory',
+                        style: GoogleFonts.inter(
+                          fontSize: mediaQuery.size.width * 0.06,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: mediaQuery.size.width * 0.05),
+                  child: const StatsSection(),
+                ),
+                SizedBox(height: mediaQuery.size.height * 0.02),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(mediaQuery.size.width * 0.08),
+                        topRight: Radius.circular(mediaQuery.size.width * 0.08),
+                      ),
+                    ),
+                    child: CustomScrollView(
+                      slivers: [
+                        SliverPersistentHeader(
+                          pinned: true,
+                          delegate: _ActionSectionHeaderDelegate(
+                            onProductIn: () => _showDialog(context, 'in'),
+                            onProductOut: () => _showDialog(context, 'out'),
+                          ),
+                        ),
+                        const SliverToBoxAdapter(
+                          child: ProductListSection(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: Colors.blue,
-        unselectedItemColor: Colors.grey,
+        selectedItemColor: const Color(0xFF1E3A8A),
+        unselectedItemColor: const Color(0xFF6B7280),
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.inventory_2_sharp), label: 'Inventory'),
-          BottomNavigationBarItem(icon: Icon(Icons.grid_4x4), label: 'Scanner'),
-          BottomNavigationBarItem(icon: Icon(Icons.bookmark), label: 'Transaction'),
-          BottomNavigationBarItem(icon: Icon(Icons.show_chart), label: 'Analytics'),
+          BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.inventory_2_rounded), label: 'Inventory'),
+          BottomNavigationBarItem(icon: Icon(Icons.qr_code_scanner_rounded), label: 'Scanner'),
+          BottomNavigationBarItem(icon: Icon(Icons.receipt_rounded), label: 'Transaction'),
+          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Analytics'),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              HeaderSection(),
-              SizedBox(height: 16),
-              StatsSection(),
-              SizedBox(height: 16),
-              ActionSection(),
-              SizedBox(height: 16),
-              ProductListSection(),
-            ],
+    );
+  }
+
+  void _showDialog(BuildContext context, String type) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, animation, secondaryAnimation) => ProductTransactionDialog(initialType: type),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return ScaleTransition(
+          scale: Tween<double>(begin: 0.8, end: 1.0).animate(
+            CurvedAnimation(parent: animation, curve: Curves.easeOut),
           ),
-        ),
-      ),
+          child: child,
+        );
+      },
     );
   }
 }
 
-// Header Section
-class HeaderSection extends StatelessWidget {
-  const HeaderSection({super.key});
+class _ActionSectionHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final VoidCallback onProductIn;
+  final VoidCallback onProductOut;
+
+  _ActionSectionHeaderDelegate({required this.onProductIn, required this.onProductOut});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final mediaQuery = MediaQuery.of(context);
     return Container(
-      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.orange,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(30)),
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(mediaQuery.size.width * 0.08),
+          topRight: Radius.circular(mediaQuery.size.width * 0.08),
+        ),
+      ),
+      padding: EdgeInsets.symmetric(
+        horizontal: mediaQuery.size.width * 0.05,
+        vertical: mediaQuery.size.height * 0.02,
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.black),
-            onPressed: () => Navigator.pop(context),
+          _ActionButton(
+            label: '+ Product In',
+            color: const Color(0xFF10B981),
+            onTap: onProductIn,
           ),
-          const Text(
-            'Inventory',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black),
+          SizedBox(width: mediaQuery.size.width * 0.04),
+          _ActionButton(
+            label: '- Product Out',
+            color: const Color(0xFFEF4444),
+            onTap: onProductOut,
           ),
-          const SizedBox(width: 50), // Spacer for symmetry
         ],
       ),
     );
   }
+
+  @override
+  double get maxExtent => 80.0;
+
+  @override
+  double get minExtent => 80.0;
+
+  @override
+  bool shouldRebuild(covariant _ActionSectionHeaderDelegate oldDelegate) {
+    return onProductIn != oldDelegate.onProductIn || onProductOut != oldDelegate.onProductOut;
+  }
 }
 
-// Stats Section
 class StatsSection extends StatelessWidget {
   const StatsSection({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('transactions').where('userId', isEqualTo: FirebaseAuth.instance.currentUser!.uid).snapshots(),
-        builder: (context, transactionSnapshot) {
-          return StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('Inventory').snapshots(),
-            builder: (context, inventorySnapshot) {
-              if (transactionSnapshot.connectionState == ConnectionState.waiting || inventorySnapshot.connectionState == ConnectionState.waiting) {
-                return _buildStatsCards('Loading...', 'Loading...', 'Loading...');
-              }
-              if (transactionSnapshot.hasError || inventorySnapshot.hasError) {
-                return _buildStatsCards('Error', 'Error', 'Error');
-              }
+    final currentUserId = FirebaseAuth.instance.currentUser!.uid;
+    final mediaQuery = MediaQuery.of(context);
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('Users')
+          .doc(currentUserId)
+          .collection('transactions')
+          .snapshots(),
+      builder: (context, transactionSnapshot) {
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('Users')
+              .doc(currentUserId)
+              .collection('Inventory')
+              .snapshots(),
+          builder: (context, inventorySnapshot) {
+            if (transactionSnapshot.connectionState == ConnectionState.waiting ||
+                inventorySnapshot.connectionState == ConnectionState.waiting) {
+              return _buildStatsCards('Loading...', 'Loading...', 'Loading...', mediaQuery);
+            }
+            if (transactionSnapshot.hasError || inventorySnapshot.hasError) {
+              return _buildStatsCards('Error', 'Error', 'Error', mediaQuery);
+            }
 
-              final today = DateTime.now();
-              final todaySales = transactionSnapshot.data!.docs.where((doc) {
-                final date = (doc['date'] as Timestamp).toDate();
-                return doc['type'] == 'sale' && date.year == today.year && date.month == today.month && date.day == today.day;
-              }).fold<int>(0, (sum, doc) => sum + (doc['amount'] as int? ?? 0));
+            final today = DateTime.now();
+            final todaySales = transactionSnapshot.data!.docs
+                .where((doc) {
+              final date = (doc['date'] as Timestamp).toDate();
+              return doc['type'] == 'sale' &&
+                  date.year == today.year &&
+                  date.month == today.month &&
+                  date.day == today.day;
+            })
+                .fold<double>(0, (sum, doc) => sum + ((doc['amount'] as int? ?? 0)));
 
-              final totalProducts = inventorySnapshot.data!.docs.fold<int>(0, (sum, doc) => sum + (doc['quantity'] as int? ?? 0));
-              final outOfStock = inventorySnapshot.data!.docs.where((doc) => (doc['quantity'] as int? ?? 0) == 0).length;
+            final totalProducts =
+            inventorySnapshot.data!.docs.fold<int>(0, (sum, doc) => sum + (doc['quantity'] as int? ?? 0));
+            final outOfStock = inventorySnapshot.data!.docs.where((doc) => (doc['quantity'] as int? ?? 0) == 0).length;
 
-              return _buildStatsCards('\$$todaySales', '$totalProducts', '$outOfStock');
-            },
-          );
-        },
-      ),
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildStatCard('Today\'s Sale', '\रु ${todaySales.toStringAsFixed(2)}', const Color(0xFF10B981), mediaQuery),
+                _buildStatCard('Total Stock', '$totalProducts', const Color(0xFF10B981), mediaQuery),
+                _buildStatCard('Out of Stock', '$outOfStock', const Color(0xFFEF4444), mediaQuery),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
-  Widget _buildStatsCards(String todaySales, String totalProducts, String outOfStock) {
+  Widget _buildStatsCards(String saleValue, String productValue, String stockValue, MediaQueryData mediaQuery) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _StatCard(label: "Today's Sale", value: todaySales, color: Colors.green),
-        _StatCard(label: 'Total Product', value: totalProducts, color: Colors.green),
-        _StatCard(label: 'Out of Stock', value: outOfStock, color: Colors.red),
+        _buildStatCard('Today\'s Sale', saleValue, const Color(0xFF10B981), mediaQuery),
+        _buildStatCard('Total Stock', productValue, const Color(0xFF10B981), mediaQuery),
+        _buildStatCard('Out of Stock', stockValue, const Color(0xFFEF4444), mediaQuery),
       ],
     );
   }
-}
 
-class _StatCard extends StatelessWidget {
-  final String label, value;
-  final Color color;
-
-  const _StatCard({required this.label, required this.value, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildStatCard(String label, String value, Color color, MediaQueryData mediaQuery) {
     return Expanded(
       child: Container(
-        margin: EdgeInsets.symmetric(horizontal: 3),
-        padding: EdgeInsets.all(16),
+        margin: EdgeInsets.symmetric(horizontal: mediaQuery.size.width * 0.01),
+        padding: EdgeInsets.all(mediaQuery.size.width * 0.04),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 8, spreadRadius: 2)],
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              spreadRadius: 2,
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-            SizedBox(height: 8),
-            Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color)),
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.030,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF6B7280),
+              ),
+            ),
+            SizedBox(height: mediaQuery.size.height * 0.01),
+            Text(
+              value,
+              style: GoogleFonts.inter(
+                fontSize: mediaQuery.size.width * 0.03,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
           ],
         ),
       ),
@@ -197,42 +580,6 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-// Action Section
-class ActionSection extends StatelessWidget {
-  const ActionSection({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _ActionButton(
-            label: '+ Product In',
-            color: Colors.green,
-            onTap: () => _showDialog(context, 'in'),
-          ),
-          SizedBox(width: 16),
-          _ActionButton(
-            label: '- Product Out',
-            color: Colors.red,
-            onTap: () => _showDialog(context, 'out'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDialog(BuildContext context, String type) {
-    showDialog(
-      context: context,
-      builder: (_) => ProductTransactionDialog(initialType: type),
-    );
-  }
-}
-
-// Product Transaction Dialog
 class ProductTransactionDialog extends StatefulWidget {
   final String initialType;
 
@@ -243,11 +590,13 @@ class ProductTransactionDialog extends StatefulWidget {
 }
 
 class _ProductTransactionDialogState extends State<ProductTransactionDialog> {
-  late String _type = widget.initialType;
+  late final String _type = widget.initialType;
+  final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _categoryController = TextEditingController();
   final _quantityController = TextEditingController();
   final _priceController = TextEditingController();
+  final _sellingPriceController = TextEditingController();
   DateTime _selectedDate = DateTime.now();
   List<Map<String, dynamic>> _products = [];
   final Map<String, int> _updatedQuantities = {};
@@ -260,16 +609,33 @@ class _ProductTransactionDialogState extends State<ProductTransactionDialog> {
 
   Future<void> _fetchProducts() async {
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('Inventory').get();
-      setState(() {
-        _products = snapshot.docs.map((doc) => {
-          'id': doc.id,
-          'name': doc['productName'],
-          'category': doc['category'],
-          'quantity': doc['quantity'],
-          'price': doc['price'],
-        }).toList();
-      });
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+      if (currentUserId == null) {
+        _showSnackBar('User not logged in');
+        return;
+      }
+      final snapshot = await FirebaseFirestore.instance
+          .collection('Users')
+          .doc(currentUserId)
+          .collection('Inventory')
+          .get();
+      if (mounted) {
+        setState(() {
+          _products = snapshot.docs.map((doc) {
+            final data = doc.data();
+            return {
+              'id': doc.id,
+              'name': data['productName'] as String? ?? 'Unnamed Product',
+              'category': data['category'] as String? ?? 'Uncategorized',
+              'quantity': data['quantity'] is int ? data['quantity'] as int : 0,
+              'price': data['price'] is double ? data['price'] as double : 0.0,
+            };
+          }).toList();
+          for (var product in _products) {
+            _updatedQuantities[product['id']] = product['quantity'];
+          }
+        });
+      }
     } catch (e) {
       _showSnackBar('Error fetching products: $e');
     }
@@ -282,21 +648,62 @@ class _ProductTransactionDialogState extends State<ProductTransactionDialog> {
       firstDate: DateTime(2000),
       lastDate: DateTime(2025),
     );
-    if (picked != null) setState(() => _selectedDate = picked);
+    if (picked != null && mounted) setState(() => _selectedDate = picked);
   }
 
   Future<void> _saveTransaction() async {
-    if (_type == 'in') {
-      if (!(_validateFields())) return;
+    if (_type == 'out') {
+      if (_products.isEmpty) {
+        _showSnackBar('No products available to remove');
+        return;
+      }
+      try {
+        final batch = FirebaseFirestore.instance.batch();
+        final userId = FirebaseAuth.instance.currentUser!.uid;
+        bool hasChanges = false;
+
+        for (var product in _products) {
+          final currentQty = _updatedQuantities[product['id']] ?? product['quantity'];
+          if (currentQty != product['quantity']) {
+            if (currentQty < 0) {
+              _showSnackBar('Insufficient quantity for ${product['name']}');
+              return;
+            }
+            final ref = FirebaseFirestore.instance
+                .collection('Users')
+                .doc(userId)
+                .collection('Inventory')
+                .doc(product['id']);
+            batch.update(ref, {'quantity': currentQty});
+            hasChanges = true;
+          }
+        }
+
+        if (hasChanges) {
+          await batch.commit();
+          _showSuccessDialog('Products Stock Update Successfully');
+        } else {
+          _showSnackBar('No changes to save');
+        }
+      } catch (e) {
+        _showSnackBar('Error saving transaction: $e');
+      }
+    } else {
       final quantity = int.parse(_quantityController.text);
       final price = double.parse(_priceController.text);
+      final sellingPrice = double.parse(_sellingPriceController.text);
       try {
-        await FirebaseFirestore.instance.collection('Inventory').add({
+        await FirebaseFirestore.instance
+            .collection('Users')
+            .doc(FirebaseAuth.instance.currentUser!.uid)
+            .collection('Inventory')
+            .add({
           'type': _type,
-          'productName': _nameController.text,
-          'category': _categoryController.text,
+          'productName': _nameController.text.trim(),
+          'category': _categoryController.text.trim().toLowerCase(),
           'quantity': quantity,
           'price': price,
+          'sellingPrice': sellingPrice,
           'date': Timestamp.fromDate(_selectedDate),
           'createdAt': FieldValue.serverTimestamp(),
           'userId': FirebaseAuth.instance.currentUser!.uid,
@@ -305,25 +712,14 @@ class _ProductTransactionDialogState extends State<ProductTransactionDialog> {
       } catch (e) {
         _showSnackBar('Error saving product: $e');
       }
-    } else {
-      if (_products.isEmpty) return _showSnackBar('No products available');
-      try {
-        for (var product in _products) {
-          if (_updatedQuantities.containsKey(product['id'])) {
-            final newQuantity = _updatedQuantities[product['id']]!;
-            if (newQuantity < 0) return _showSnackBar('Insufficient quantity');
-            await FirebaseFirestore.instance.collection('Inventory').doc(product['id']).update({'quantity': newQuantity});
-          }
-        }
-        _showSuccessDialog('Product Removed Successfully');
-      } catch (e) {
-        _showSnackBar('Error saving product: $e');
-      }
     }
   }
 
   bool _validateFields() {
-    if (_nameController.text.isEmpty || _categoryController.text.isEmpty || _quantityController.text.isEmpty || _priceController.text.isEmpty) {
+    if (_nameController.text.isEmpty ||
+        _categoryController.text.isEmpty ||
+        _quantityController.text.isEmpty ||
+        _priceController.text.isEmpty) {
       _showSnackBar('Please fill all fields');
       return false;
     }
@@ -335,132 +731,447 @@ class _ProductTransactionDialogState extends State<ProductTransactionDialog> {
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   void _showSuccessDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: const Text('Success', style: TextStyle(color: Colors.green)),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context); // Close success dialog
-              Navigator.pop(context); // Close transaction dialog
+    if (mounted) {
+      showGeneralDialog(
+        context: context,
+        barrierDismissible: true,
+        barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+        transitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (context, animation, secondaryAnimation) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: Text(
+            'Success',
+            style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: const Color(0xFF10B981)),
+          ),
+          content: Text(message, style: GoogleFonts.inter(fontSize: 16)),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pop(context);
+              },
+              child: Text(
+                'OK',
+                style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF1E3A8A)),
+              ),
+            ),
+          ],
+        ),
+        transitionBuilder: (context, animation, secondaryAnimation, child) {
+          return ScaleTransition(
+            scale: Tween<double>(begin: 0.8, end: 1.0).animate(
+              CurvedAnimation(parent: animation, curve: Curves.easeOut),
+            ),
+            child: child,
+          );
+        },
+      );
+    }
+  }
+
+  void _showDeleteConfirmationDialog(String productId, String productName) {
+    if (mounted) {
+      showGeneralDialog(
+        context: context,
+        barrierDismissible: true,
+        barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+        transitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (context, animation, secondaryAnimation) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: Text(
+            'Confirm Deletion',
+            style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: const Color(0xFF1E3A8A)),
+          ),
+          content: Text(
+            'Are you sure you want to delete $productName?',
+            style: GoogleFonts.inter(fontSize: 16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Cancel',
+                style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF6B7280)),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _deleteProduct(productId);
+              },
+              child: Text(
+                'Delete',
+                style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFFEF4444)),
+              ),
+            ),
+          ],
+        ),
+        transitionBuilder: (context, animation, secondaryAnimation, child) {
+          return ScaleTransition(
+            scale: Tween<double>(begin: 0.8, end: 1.0).animate(
+              CurvedAnimation(parent: animation, curve: Curves.easeOut),
+            ),
+            child: child,
+          );
+        },
+      );
+    }
+  }
+
+  Future<void> _deleteProduct(String productId) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('Users')
+          .doc(FirebaseAuth.instance.currentUser!.uid)
+          .collection('Inventory')
+          .doc(productId)
+          .delete();
+      if (mounted) {
+        setState(() {
+          _products.removeWhere((p) => p['id'] == productId);
+          _updatedQuantities.remove(productId);
+        });
+        _showSnackBar('Product deleted successfully');
+      }
+    } catch (e) {
+      String errorMessage = 'Error deleting product: $e';
+      if (e is FirebaseException) {
+        switch (e.code) {
+          case 'permission-denied':
+            errorMessage = 'You do not have permission to delete this product.';
+            break;
+          case 'not-found':
+            errorMessage = 'Product not found. It may have been deleted already.';
+            break;
+          default:
+            errorMessage = 'Failed to delete product. Please try again.';
+        }
+      }
+      _showSnackBar(errorMessage);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 0,
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(mediaQuery.size.width * 0.05),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(color: Colors.grey.withOpacity(0.2), blurRadius: 10, spreadRadius: 5),
+          ],
+        ),
+        child: _type == 'in' ? _buildProductIn() : _buildProductOut(),
+      ),
+    );
+  }
+
+  // In the _ProductTransactionDialogState class, replace the _buildProductIn() method with this:
+
+  Widget _buildProductIn() {
+    return Form(
+      key: _formKey, // Add this line (you'll need to declare _formKey in the state class)
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Add Product',
+                style: GoogleFonts.inter(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF1E3A8A),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: Color(0xFF6B7280)),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _nameController,
+            decoration: InputDecoration(
+              labelText: 'Product Name',
+              labelStyle: GoogleFonts.inter(color: const Color(0xFF6B7280)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              errorStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFEF4444)),
+            ),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Product name is required';
+              }
+              return null;
             },
-            child: const Text('OK', style: TextStyle(color: Colors.blue)),
+            style: GoogleFonts.inter(fontSize: 16),
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _categoryController,
+            decoration: InputDecoration(
+              labelText: 'Category',
+              labelStyle: GoogleFonts.inter(color: const Color(0xFF6B7280)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              errorStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFEF4444)),
+            ),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Category is required';
+              }
+              return null;
+            },
+            style: GoogleFonts.inter(fontSize: 16),
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _quantityController,
+                  decoration: InputDecoration(
+                    labelText: 'Quantity',
+                    labelStyle: GoogleFonts.inter(color: const Color(0xFF6B7280)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                    errorStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFEF4444)),
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Quantity is required';
+                    }
+                    if (int.tryParse(value) == null) {
+                      return 'Enter a valid number';
+                    }
+                    return null;
+                  },
+                  style: GoogleFonts.inter(fontSize: 16),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  controller: _priceController,
+                  decoration: InputDecoration(
+                    labelText: 'Price',
+                    prefixText: '\रु ',
+                    labelStyle: GoogleFonts.inter(color: const Color(0xFF6B7280)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                    errorStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFEF4444)),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Price is required';
+                    }
+                    if (double.tryParse(value) == null) {
+                      return 'Enter a valid number';
+                    }
+                    return null;
+                  },
+                  style: GoogleFonts.inter(fontSize: 16),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _sellingPriceController,
+            decoration: InputDecoration(
+              labelText: 'Selling Price',
+              prefixText: '\रु ',
+              labelStyle: GoogleFonts.inter(color: const Color(0xFF6B7280)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              errorStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFEF4444)),
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Selling price is required';
+              }
+              final numValue = double.tryParse(value);
+              if (numValue == null || numValue <= 0) {
+                return 'Enter a valid number';
+              }
+              return null;
+            },
+            style: GoogleFonts.inter(fontSize: 16),
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            onChanged: (value) {
+              if (value.isNotEmpty && !value.contains('.')) {
+                _sellingPriceController.text = '$value.00';
+                _sellingPriceController.selection = TextSelection.fromPosition(
+                  TextPosition(offset: _sellingPriceController.text.length - 3),
+                );
+              }
+            },
+          ),
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: _selectDate,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: const Color(0xFFD1D5DB)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.calendar_today, color: Color(0xFF1E3A8A), size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    DateFormat('dd MMM yyyy').format(_selectedDate),
+                    style: GoogleFonts.inter(fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () {
+              if (_formKey.currentState!.validate()) {
+                _saveTransaction();
+              } else {
+                _showSnackBar('Please fill all required fields correctly');
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFF97316),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              minimumSize: const Size(double.infinity, 0),
+            ),
+            child: Text(
+              'Save',
+              style: GoogleFonts.inter(fontSize: 16, color: Colors.white),
+            ),
           ),
         ],
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 0,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.2), blurRadius: 10, spreadRadius: 5)],
-        ),
-        child: SingleChildScrollView(
-          child: _type == 'in' ? _buildProductIn() : _buildProductOut(),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProductIn() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Add Product',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue),
-            ),
-            IconButton(
-              icon: Icon(Icons.close, color: Colors.grey),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ],
-        ),
-        SizedBox(height: 16),
-        _buildTextField(_nameController, 'Product Name'),
-        SizedBox(height: 12),
-        _buildTextField(_categoryController, 'Category'),
-        SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(child: _buildTextField(_quantityController, 'Quantity', keyboardType: TextInputType.number)),
-            SizedBox(width: 12),
-            Expanded(child: _buildTextField(_priceController, 'Price', prefixText: '\$', keyboardType: TextInputType.number)),
-          ],
-        ),
-        SizedBox(height: 16),
-        GestureDetector(
-          onTap: _selectDate,
-          child: Container(
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey[300]!),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.calendar_today, color: Colors.blue, size: 20),
-                SizedBox(width: 8),
-                Text(DateFormat('dd MMM yyyy').format(_selectedDate), style: TextStyle(fontSize: 16)),
-              ],
-            ),
-          ),
-        ),
-        SizedBox(height: 24),
-        ElevatedButton(
-          onPressed: _saveTransaction,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.orange,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            padding: EdgeInsets.symmetric(vertical: 14),
-            minimumSize: Size(double.infinity, 0),
-          ),
-          child: Text('Save', style: TextStyle(fontSize: 16, color: Colors.white)),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTextField(TextEditingController controller, String label, {String? prefixText, TextInputType? keyboardType}) {
-    return TextField(
-      controller: controller,
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(color: Colors.grey[600]),
-        prefixText: prefixText,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        filled: true,
-        fillColor: Colors.grey[50],
-        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      ),
-      keyboardType: keyboardType,
-    );
-  }
-
   Widget _buildProductOut() {
+    final mediaQuery = MediaQuery.of(context);
+    if (_products.isEmpty) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Remove Product',
+                style: GoogleFonts.inter(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF1E3A8A),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: Color(0xFF6B7280)),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: Text(
+              'No products available',
+              style: GoogleFonts.inter(fontSize: 16, color: const Color(0xFF6B7280)),
+            ),
+          ),
+        ],
+      );
+    }
+
     final groupedProducts = _products.fold<Map<String, List<Map<String, dynamic>>>>(
       {},
-          (map, product) => map..putIfAbsent(product['category'], () => []).add(product),
+          (map, product) {
+        final category = (product['category'] as String).trim().toLowerCase();
+        map.putIfAbsent(category, () => []).add(product);
+        return map;
+      },
     );
 
     return Column(
@@ -472,133 +1183,202 @@ class _ProductTransactionDialogState extends State<ProductTransactionDialog> {
           children: [
             Text(
               'Remove Product',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue),
+              style: GoogleFonts.inter(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFF1E3A8A),
+              ),
             ),
             IconButton(
-              icon: Icon(Icons.close, color: Colors.grey),
+              icon: const Icon(Icons.close, color: Color(0xFF6B7280)),
               onPressed: () => Navigator.pop(context),
             ),
           ],
         ),
-        SizedBox(height: 16),
-        if (_products.isEmpty)
-          Center(child: Text('No products available', style: TextStyle(color: Colors.grey)))
-        else
-          ...groupedProducts.entries.map((entry) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(entry.key, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[700])),
-              SizedBox(height: 8),
-              ...entry.value.map((product) => Container(
-                margin: EdgeInsets.only(bottom: 4),
-                padding: EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey[300]!),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        const SizedBox(height: 1),
+        ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: mediaQuery.size.height * 0.4),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: groupedProducts.entries.map((entry) {
+                final category = entry.key;
+                final products = entry.value;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(product['name'], style: TextStyle(fontSize: 16)),
-                        Text('Stock: ${product['quantity']}', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      ],
+                    Text(
+                      category[0].toUpperCase() + category.substring(1),
+                      style: GoogleFonts.inter(
+                        fontSize: mediaQuery.size.width * 0.03,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF6B7280),
+                      ),
                     ),
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: Icon(Icons.remove_circle_outline, color: Colors.red),
-                          onPressed: () => setState(() => _updatedQuantities[product['id']] =
-                              (_updatedQuantities[product['id']] ?? product['quantity']) - 1),
+                    SizedBox(height: mediaQuery.size.height * 0.01),
+                    ...products.map((product) => Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      color: const Color(0xFFFFFFFF),
+                      margin: EdgeInsets.symmetric(vertical: mediaQuery.size.height * 0.005),
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          vertical: mediaQuery.size.height * 0.01,
+                          horizontal: mediaQuery.size.width * 0.02,
                         ),
-                        Text('${_updatedQuantities[product['id']] ?? product['quantity']}', style: TextStyle(fontSize: 16)),
-                        IconButton(
-                          icon: Icon(Icons.add_circle_outline, color: Colors.green),
-                          onPressed: () => setState(() => _updatedQuantities[product['id']] =
-                              (_updatedQuantities[product['id']] ?? product['quantity']) + 1),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    product['name'],
+                                    style: GoogleFonts.inter(
+                                      fontSize: mediaQuery.size.width * 0.030,
+                                      fontWeight: FontWeight.w600,
+                                      color: const Color(0xFF221E22),
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    'Stock: ${product['quantity']}',
+                                    style: GoogleFonts.inter(
+                                      fontSize: mediaQuery.size.width * 0.03,
+                                      color: const Color(0xFF6B7280),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Row(
+                              children: [
+                                SizedBox(width: mediaQuery.size.width * 0.001),
+                                IconButton(
+                                  icon: const Icon(Icons.remove_circle_outline_rounded,
+                                      color: Color(0xFFEF4444), size: 20),
+                                  onPressed: () {
+                                    setState(() {
+                                      final currentQty = _updatedQuantities[product['id']] ?? product['quantity'];
+                                      if (currentQty > 0) {
+                                        _updatedQuantities[product['id']] = currentQty - 1;
+                                      }
+                                    });
+                                  },
+                                ),
+                                Text(
+                                  '${_updatedQuantities[product['id']] ?? product['quantity']}',
+                                  style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.030),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.add_circle_outline_rounded,
+                                      color: Color(0xFF10B981), size: 20),
+                                  onPressed: () {
+                                    setState(() {
+                                      final currentQty = _updatedQuantities[product['id']] ?? product['quantity'];
+                                      _updatedQuantities[product['id']] = currentQty + 1;
+                                    });
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_rounded, color: Color(0xFFEF4444), size: 20),
+                                  onPressed: () => _showDeleteConfirmationDialog(product['id'], product['name']),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                        IconButton(
-                          icon: Icon(Icons.delete, color: Colors.red),
-                          onPressed: () => _deleteProduct(product['id']),
-                        ),
-                      ],
-                    ),
+                      ),
+                    )),
+                    SizedBox(height: mediaQuery.size.height * 0.02),
                   ],
-                ),
-              )),
-              SizedBox(height: 12),
-            ],
-          )),
-        SizedBox(height: 24),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
         ElevatedButton(
           onPressed: _saveTransaction,
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.orange,
+            backgroundColor: const Color(0xFFF97316),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            padding: EdgeInsets.symmetric(vertical: 14),
-            minimumSize: Size(double.infinity, 0),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            minimumSize: const Size(double.infinity, 0),
           ),
-          child: Text('Save', style: TextStyle(fontSize: 16, color: Colors.white)),
+          child: Text(
+            'Save',
+            style: GoogleFonts.inter(fontSize: 16, color: Colors.white),
+          ),
         ),
       ],
     );
   }
-
-  Future<void> _deleteProduct(String productId) async {
-    try {
-      await FirebaseFirestore.instance.collection('Inventory').doc(productId).delete();
-      setState(() => _products.removeWhere((p) => p['id'] == productId));
-      _showSnackBar('Product deleted successfully');
-    } catch (e) {
-      _showSnackBar('Error deleting product: $e');
-    }
-  }
 }
-// Product List Section
+
 class ProductListSection extends StatelessWidget {
   const ProductListSection({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final currentUserId = FirebaseAuth.instance.currentUser!.uid;
+    final mediaQuery = MediaQuery.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: EdgeInsets.symmetric(horizontal: mediaQuery.size.width * 0.05),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: const [
-              Text('Product List', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              Text('See All', style: TextStyle(color: Colors.blue, fontSize: 14)),
+            children: [
+              Text(
+                'Product List',
+                style: GoogleFonts.inter(
+                  fontSize: mediaQuery.size.width * 0.045,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF221E22),
+                ),
+              ),
             ],
           ),
-          SizedBox(height: 12),
+          SizedBox(height: mediaQuery.size.height * 0.015),
           StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('Inventory').snapshots(),
+            stream: FirebaseFirestore.instance
+                .collection('Users')
+                .doc(currentUserId)
+                .collection('Inventory')
+                .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return Center(child: CircularProgressIndicator());
+                return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) {
-                return Text('Error: ${snapshot.error}');
+                return Text(
+                  'Error: ${snapshot.error}',
+                  style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.04),
+                );
               }
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return Text('No products available', style: TextStyle(color: Colors.grey));
+                return Text(
+                  'No products available',
+                  style: GoogleFonts.inter(fontSize: mediaQuery.size.width * 0.04, color: const Color(0xFF6B7280)),
+                );
               }
 
-              // Group products by category
               final groupedProducts = snapshot.data!.docs.fold<Map<String, List<Map<String, dynamic>>>>(
                 {},
                     (map, doc) {
                   final data = doc.data() as Map<String, dynamic>;
-                  final category = data['category'] as String? ?? 'Uncategorized';
+                  final category = (data['category'] as String? ?? 'Uncategorized').trim().toLowerCase();
                   map.putIfAbsent(category, () => []).add({
                     'id': doc.id,
-                    'name': data['productName'],
-                    'quantity': data['quantity'],
-                    'price': data['price'],
+                    'name': data['productName'] as String? ?? 'Unnamed Product',
+                    'quantity': data['quantity'] is int ? data['quantity'] as int : 0,
+                    'price': data['price'] is double ? data['price'] as double : 0.0,
+                    'sellingPrice': data['sellingPrice'] is double ? data['sellingPrice'] as double : 0.0,
                   });
                   return map;
                 },
@@ -613,93 +1393,83 @@ class ProductListSection extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        category,
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[700]),
-                      ),
-                      SizedBox(height: 8),
-                      ...products.map((product) => Container(
-                        margin: EdgeInsets.only(bottom: 4),
-                        padding: EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey[300]!),
-                          borderRadius: BorderRadius.circular(8),
+                        category[0].toUpperCase() + category.substring(1),
+                        style: GoogleFonts.inter(
+                          fontSize: mediaQuery.size.width * 0.04,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF6B7280),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(product['name'], style: TextStyle(fontSize: 16)),
-                                Text('Stock: ${product['quantity']}', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                              ],
-                            ),
-                            Text('\$${product['price'].toStringAsFixed(2)}',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.green)),
-                          ],
+                      ),
+                      SizedBox(height: mediaQuery.size.height * 0.01),
+                      ...products.map((product) => Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        color: const Color(0xFFFFFFFF),
+                        margin: EdgeInsets.symmetric(vertical: mediaQuery.size.height * 0.005),
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            vertical: mediaQuery.size.height * 0.015,
+                            horizontal: mediaQuery.size.width * 0.04,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      product['name'],
+                                      style: GoogleFonts.inter(
+                                        fontSize: mediaQuery.size.width * 0.035,
+                                        fontWeight: FontWeight.w600,
+                                        color: const Color(0xFF221E22),
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      'Stock: ${product['quantity']}',
+                                      style: GoogleFonts.inter(
+                                        fontSize: mediaQuery.size.width * 0.03,
+                                        color: const Color(0xFF6B7280),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '\रु ${product['sellingPrice'].toStringAsFixed(2)}',
+                                    style: GoogleFonts.inter(
+                                      fontSize: mediaQuery.size.width * 0.035,
+                                      fontWeight: FontWeight.bold,
+                                      color: const Color(0xFF10B981),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       )),
-                      SizedBox(height: 12),
+                      SizedBox(height: mediaQuery.size.height * 0.02),
                     ],
                   );
                 }).toList(),
               );
             },
           ),
+          SizedBox(height: mediaQuery.size.height * 0.02),
         ],
       ),
     );
   }
 }
 
-class ProductItem extends StatelessWidget {
-  final String productName;
-  final int totalProduct, remainingProduct;
-  final double price;
-
-  const ProductItem({
-    super.key,
-    required this.productName,
-    required this.totalProduct,
-    required this.remainingProduct,
-    required this.price,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: EdgeInsets.only(bottom: 8),
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 8, spreadRadius: 2)],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.store, color: Colors.blue, size: 30),
-              SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(productName, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  SizedBox(height: 4),
-                  Text('Stock: $remainingProduct', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                ],
-              ),
-            ],
-          ),
-          Text('\$${price.toStringAsFixed(2)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.green)),
-        ],
-      ),
-    );
-  }
-}
-
-// Reusable Widgets
 class _ActionButton extends StatelessWidget {
   final String label;
   final Color color;
@@ -709,18 +1479,26 @@ class _ActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: EdgeInsets.symmetric(vertical: 14),
+          padding: EdgeInsets.symmetric(vertical: mediaQuery.size.height * 0.015),
           decoration: BoxDecoration(
             color: color.withOpacity(0.1),
-            border: Border.all(color: color),
             borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color),
           ),
           child: Center(
-            child: Text(label, style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold)),
+            child: Text(
+              label,
+              style: GoogleFonts.inter(
+                color: color,
+                fontSize: mediaQuery.size.width * 0.04,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ),
       ),

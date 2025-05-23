@@ -5,8 +5,8 @@ import 'package:google_sign_in/google_sign_in.dart';
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Check if email already exists
   Future<bool> checkEmailExists(String email) async {
     try {
       final result = await _auth.fetchSignInMethodsForEmail(email);
@@ -17,16 +17,15 @@ class AuthService {
     }
   }
 
-  // Sign up with email and password
   Future<User?> signUpWithEmailPassword({
     required String email,
     required String password,
     required String name,
     required String mobile,
     required String businessName,
+    required String address,
   }) async {
     try {
-      // Check if email already exists
       bool emailExists = await checkEmailExists(email);
       if (emailExists) {
         throw FirebaseAuthException(
@@ -35,32 +34,29 @@ class AuthService {
         );
       }
 
-      // Create user with email and password
       UserCredential result = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
 
-      // Save additional user data to Firestore
-      await FirebaseFirestore.instance.collection('Users').doc(result.user!.uid).set({
+      await _firestore.collection('Users').doc(result.user!.uid).set({
         'Name': name,
         'Email': email,
         'Mobile': mobile,
         'BusinessName': businessName,
         'UserID': result.user!.uid,
+        'Address': address,
         'CreatedAt': FieldValue.serverTimestamp(),
       });
 
-      // Sign out the user after signup so they need to log in
       await _auth.signOut();
       return result.user;
     } catch (e) {
       print('Error during sign up: $e');
-      rethrow; // Throw the error to be caught in the UI
+      rethrow;
     }
   }
 
-  // Sign in with email and password
   Future<User?> signInWithEmailPassword(String email, String password) async {
     try {
       UserCredential result = await _auth.signInWithEmailAndPassword(
@@ -74,7 +70,6 @@ class AuthService {
     }
   }
 
-  // Sign in with Google
   Future<User?> signInWithGoogle() async {
     try {
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
@@ -89,19 +84,19 @@ class AuthService {
 
       UserCredential result = await _auth.signInWithCredential(credential);
 
-      // Check if user exists in Firestore, if not, create a new document
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance
+      DocumentSnapshot userDoc = await _firestore
           .collection('Users')
           .doc(result.user!.uid)
           .get();
 
       if (!userDoc.exists) {
-        await FirebaseFirestore.instance.collection('Users').doc(result.user!.uid).set({
+        await _firestore.collection('Users').doc(result.user!.uid).set({
           'Name': result.user!.displayName ?? '',
           'Email': result.user!.email ?? '',
           'Mobile': '',
           'BusinessName': '',
           'UserID': result.user!.uid,
+          'Address': '',
           'CreatedAt': FieldValue.serverTimestamp(),
         });
       }
@@ -113,7 +108,6 @@ class AuthService {
     }
   }
 
-  // Sign out
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     await _auth.signOut();
