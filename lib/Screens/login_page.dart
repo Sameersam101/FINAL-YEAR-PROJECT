@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '/auth_service.dart';
 import 'signup_page.dart';
 import 'dashboard.dart';
-import '../Admin/admindashboard.dart'; // Updated import
+import '../Admin/admindashboard.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key}); // Made constructor const
+  const LoginPage({super.key});
 
   @override
   _LoginPageState createState() => _LoginPageState();
@@ -19,7 +19,6 @@ class _LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _resetEmailController = TextEditingController();
-  final _phoneController = TextEditingController();
   bool _isPasswordVisible = false;
   bool _isLoading = false;
 
@@ -36,18 +35,13 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       if (user != null) {
-        // Check if the email contains "@admin"
         final email = _emailController.text.trim().toLowerCase();
-        print('User email after login: $email');
-
         if (email.contains('@admin')) {
-          print('Redirecting to AdminDashboard (Email contains @admin)');
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const AdminDashboard()),
           );
         } else {
-          print('Redirecting to DashboardPage (Email does not contain @admin)');
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => DashboardPage()),
@@ -55,12 +49,18 @@ class _LoginPageState extends State<LoginPage> {
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invalid credentials. Please try again.')),
+          const SnackBar(
+            content: Text('Invalid credentials. Please try again.'),
+            backgroundColor: Color(0xFFEF4444),
+          ),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: const Color(0xFFEF4444),
+        ),
       );
     } finally {
       setState(() => _isLoading = false);
@@ -69,221 +69,205 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
-
     final authService = Provider.of<AuthService>(context, listen: false);
     try {
       final user = await authService.signInWithGoogle();
       if (user != null) {
-        // Check if the email contains "@admin"
-        final email = user.email?.toLowerCase() ?? '';
-        print('User email after Google login: $email');
-
-        if (email.contains('@admin')) {
-          print('Redirecting to AdminDashboard (Email contains @admin)');
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => AdminDashboard()),
-          );
-        } else {
-          print('Redirecting to DashboardPage (Email does not contain @admin)');
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => DashboardPage()),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Successfully signed in with Google!'),
+            backgroundColor: Color(0xFF10B981), // Green color for success
+            duration: Duration(seconds: 3),
+          ),
+        );
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => DashboardPage()),
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Google Sign-In failed. Please try again.')),
+          const SnackBar(
+            content: Text('Google Sign-In failed. Please try again.'),
+            backgroundColor: Color(0xFFEF4444),
+          ),
         );
       }
+    } on FirebaseAuthException catch (e) {
+      String errorMessage;
+      switch (e.code) {
+        case 'google-signin-cancelled':
+          errorMessage = 'Sign in was cancelled';
+          break;
+        case 'account-exists-with-different-credential':
+          errorMessage = 'Account already exists with different credentials';
+          break;
+        default:
+          errorMessage = 'Google Sign-In failed: ${e.message}';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: const Color(0xFFEF4444),
+        ),
+      );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: const Color(0xFFEF4444),
+        ),
       );
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
-  void _showPhoneNumberDialog() {
+  void _showResetEmailDialog() {
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Forgot Password - Step 1'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Enter your phone number to identify your account.'),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _phoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Phone Number',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(10)),
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: Colors.white,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Reset Password',
+                  style: GoogleFonts.inter(
+                    fontSize: MediaQuery.of(context).size.width * 0.045,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1E3A8A),
                   ),
                 ),
-                keyboardType: TextInputType.phone,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your phone number';
-                  }
-                  if (!RegExp(r'^\+?[1-9]\d{1,14}$').hasMatch(value)) {
-                    return 'Please enter a valid phone number';
-                  }
-                  return null;
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (_phoneController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Please enter your phone number')),
-                  );
-                  return;
-                }
-                if (!RegExp(r'^\+?[1-9]\d{1,14}$').hasMatch(_phoneController.text)) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Please enter a valid phone number')),
-                  );
-                  return;
-                }
-
-                try {
-                  final result = await FirebaseFunctions.instance
-                      .httpsCallable('checkPhoneNumber')
-                      .call({'phoneNumber': _phoneController.text.trim()});
-
-                  if (!result.data['exists']) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('No account found with this phone number.')),
-                    );
-                    return;
-                  }
-
-                  Navigator.pop(context);
-                  _showEmailDialog();
-                } on FirebaseFunctionsException catch (e) {
-                  Navigator.pop(context);
-                  String errorMessage = 'Error: ${e.message}';
-                  if (e.code == 'not-found') {
-                    errorMessage = 'Error: Cloud Function not found. Please ensure the function is deployed.';
-                  }
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(errorMessage)),
-                  );
-                } catch (e) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error: ${e.toString()}')),
-                  );
-                }
-              },
-              child: const Text('Next'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showEmailDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Forgot Password - Step 2'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Enter your email to receive a password reset link.'),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _resetEmailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(10)),
+                const SizedBox(height: 10),
+                Text(
+                  'Enter your email to receive a password reset link.',
+                  style: GoogleFonts.inter(
+                    fontSize: MediaQuery.of(context).size.width * 0.035,
+                    color: const Color(0xFF6B7280),
                   ),
                 ),
-                keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your email';
-                  }
-                  if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-                      .hasMatch(value)) {
-                    return 'Please enter a valid email';
-                  }
-                  return null;
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (_resetEmailController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Please enter your email')),
-                  );
-                  return;
-                }
-                if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-                    .hasMatch(_resetEmailController.text)) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Please enter a valid email')),
-                  );
-                  return;
-                }
-
-                try {
-                  await FirebaseAuth.instance.sendPasswordResetEmail(
-                    email: _resetEmailController.text.trim(),
-                  );
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Password reset email sent! Check your inbox.',
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _resetEmailController,
+                  decoration: InputDecoration(
+                    labelText: 'Email',
+                    labelStyle: GoogleFonts.inter(
+                      fontSize: MediaQuery.of(context).size.width * 0.035,
+                      color: const Color(0xFF6B7280),
+                    ),
+                    prefixIcon: const Icon(Icons.email_rounded, color: Color(0xFF6B7280)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+                    ),
+                    errorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFEF4444)),
+                    ),
+                    focusedErrorBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFEF4444)),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                    errorStyle: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: const Color(0xFFEF4444),
+                    ),
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                  style: GoogleFonts.inter(fontSize: MediaQuery.of(context).size.width * 0.035),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your email';
+                    }
+                    if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+                        .hasMatch(value)) {
+                      return 'Please enter a valid email';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(
+                        'Cancel',
+                        style: GoogleFonts.inter(
+                          fontSize: MediaQuery.of(context).size.width * 0.035,
+                          color: const Color(0xFF6B7280),
+                        ),
                       ),
                     ),
-                  );
-                  _resetEmailController.clear();
-                  _phoneController.clear();
-                } catch (e) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error: ${e.toString()}'),
+                    ElevatedButton(
+                      onPressed: () async {
+                        if (_resetEmailController.text.isEmpty ||
+                            !RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+                                .hasMatch(_resetEmailController.text)) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Please enter a valid email'),
+                              backgroundColor: Color(0xFFEF4444),
+                            ),
+                          );
+                          return;
+                        }
+                        try {
+                          await FirebaseAuth.instance.sendPasswordResetEmail(
+                            email: _resetEmailController.text.trim(),
+                          );
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Password reset email sent! Check your inbox.'),
+                              backgroundColor: Color(0xFFF97316),
+                            ),
+                          );
+                          _resetEmailController.clear();
+                        } catch (e) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Error: ${e.toString()}'),
+                              backgroundColor: const Color(0xFFEF4444),
+                            ),
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF97316),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      ),
+                      child: Text(
+                        'Send',
+                        style: GoogleFonts.inter(
+                          fontSize: MediaQuery.of(context).size.width * 0.035,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
-                  );
-                }
-              },
-              child: const Text('Send'),
+                  ],
+                ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );
@@ -294,213 +278,258 @@ class _LoginPageState extends State<LoginPage> {
     _emailController.dispose();
     _passwordController.dispose();
     _resetEmailController.dispose();
-    _phoneController.dispose();
     super.dispose();
+  }
+
+  Widget _buildTextField(
+      TextEditingController controller,
+      String label,
+      IconData icon, {
+        bool isPassword = false,
+        bool isEmail = false,
+      }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: isPassword ? !_isPasswordVisible : false,
+      keyboardType: isEmail ? TextInputType.emailAddress : TextInputType.text,
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: GoogleFonts.inter(
+          fontSize: MediaQuery.of(context).size.width * 0.035,
+          color: const Color(0xFF6B7280),
+        ),
+        prefixIcon: Icon(icon, color: const Color(0xFF6B7280)),
+        suffixIcon: isPassword
+            ? IconButton(
+          icon: Icon(
+            _isPasswordVisible ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+            color: const Color(0xFF6B7280),
+          ),
+          onPressed: () {
+            setState(() => _isPasswordVisible = !_isPasswordVisible);
+          },
+        )
+            : null,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFEF4444)),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFEF4444)),
+        ),
+        contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        errorStyle: GoogleFonts.inter(
+          fontSize: 12,
+          color: const Color(0xFFEF4444),
+        ),
+      ),
+      style: GoogleFonts.inter(fontSize: MediaQuery.of(context).size.width * 0.035),
+      autovalidateMode: AutovalidateMode.onUserInteraction,
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter $label';
+        }
+        if (isEmail && !RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(value)) {
+          return 'Please enter a valid email';
+        }
+        if (isPassword && value.length < 6) {
+          return 'Password must be at least 6 characters';
+        }
+        return null;
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
     return Scaffold(
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            Container(
-              color: Colors.white,
-              child: const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(height: 90),
-                  Image(
-                    image: AssetImage('lib/Assets/Group84.png'),
-                    height: 120,
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              Container(
+                height: mediaQuery.size.height * 0.3,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFF1E3A8A), Color(0xFFFFFFFF)],
                   ),
-                  SizedBox(height: 10),
-                  Text(
-                    'ARTHIK SATHI',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.all(mediaQuery.size.width * 0.05),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Login',
+                          style: GoogleFonts.inter(
+                            fontSize: mediaQuery.size.width * 0.06,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                  SizedBox(height: 40),
-                ],
+                    Expanded(
+                      child: Container(
+                        padding: EdgeInsets.all(mediaQuery.size.width * 0.05),
+                        child: Container(
+                          decoration: BoxDecoration(
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Image.asset(
+                              'lib/Assets/Group84.png',
+                              height: mediaQuery.size.width * 0.3,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Container(
-              height: MediaQuery.of(context).size.height * 0.6,
-              decoration: const BoxDecoration(
-                color: Colors.amber,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(40)),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
+              Container(
+                padding: EdgeInsets.all(mediaQuery.size.width * 0.05),
+                height: mediaQuery.size.height * 0.65,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.2),
+                      blurRadius: 10,
+                      spreadRadius: 10,
+                    ),
+                  ],
+                ),
                 child: Form(
                   key: _formKey,
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Login',
-                        style: TextStyle(
-                          fontSize: 25,
+                      Text(
+                        'Welcome Back',
+                        style: GoogleFonts.inter(
+                          fontSize: mediaQuery.size.width * 0.045,
                           fontWeight: FontWeight.bold,
-                          color: Colors.black,
+                          color: const Color(0xFF221E22),
                         ),
                       ),
-                      const SizedBox(height: 15),
-                      TextFormField(
-                        controller: _emailController,
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          filled: true,
-                          fillColor: Colors.white,
-                          prefixIcon: Icon(Icons.email),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(10)),
-                          ),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your email';
-                          }
-                          if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-                              .hasMatch(value)) {
-                            return 'Please enter a valid email';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          TextFormField(
-                            controller: _passwordController,
-                            obscureText: !_isPasswordVisible,
-                            decoration: InputDecoration(
-                              labelText: 'Password',
-                              filled: true,
-                              fillColor: Colors.white,
-                              prefixIcon: const Icon(Icons.lock),
-                              border: const OutlineInputBorder(
-                                borderRadius: BorderRadius.all(Radius.circular(10)),
-                              ),
-                              suffixIcon: IconButton(
-                                icon: Icon(_isPasswordVisible
-                                    ? Icons.visibility
-                                    : Icons.visibility_off),
-                                onPressed: () {
-                                  setState(() {
-                                    _isPasswordVisible = !_isPasswordVisible;
-                                  });
-                                },
-                              ),
+                      SizedBox(height: mediaQuery.size.height * 0.02),
+                      _buildTextField(_emailController, 'Email', Icons.email_rounded, isEmail: true),
+                      SizedBox(height: mediaQuery.size.height * 0.02),
+                      _buildTextField(_passwordController, 'Password', Icons.lock_rounded, isPassword: true),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: _showResetEmailDialog,
+                          child: Text(
+                            'Forgot Password?',
+                            style: GoogleFonts.inter(
+                              fontSize: MediaQuery.of(context).size.width * 0.035,
+                              color: const Color(0xFF1E3A8A),
+                              fontWeight: FontWeight.w600,
                             ),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter your password';
-                              }
-                              return null;
-                            },
                           ),
-                          GestureDetector(
-                            onTap: _showPhoneNumberDialog,
-                            child: const Padding(
-                              padding: EdgeInsets.only(top: 8.0),
-                              child: Text(
-                                'Forgot Password?',
-                                style: TextStyle(
-                                  color: Colors.blue,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
+                        ),
+                      ),
+                      SizedBox(height: mediaQuery.size.height * 0.02),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _login,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFF97316),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            minimumSize: const Size(double.infinity, 0),
+                          ),
+                          child: _isLoading
+                              ? const CircularProgressIndicator(color: Colors.white)
+                              : Text(
+                            'Login',
+                            style: GoogleFonts.inter(
+                              fontSize: 16,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: mediaQuery.size.height * 0.02),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => SignupPage()),
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1E3A8A),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            minimumSize: const Size(double.infinity, 0),
+                          ),
+                          child: Text(
+                            'Sign Up',
+                            style: GoogleFonts.inter(
+                              fontSize: 16,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: mediaQuery.size.height * 0.02),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _signInWithGoogle,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            elevation: 2,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            minimumSize: const Size(double.infinity, 0),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Image.network(
+                                'https://www.google.com/favicon.ico',
+                                height: 24,
+                                width: 24,
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Sign in with Google',
+                                style: GoogleFonts.inter(
+                                  fontSize: 16,
+                                  color: const Color(0xFF221E22),
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      ElevatedButton(
-                        onPressed: _isLoading ? null : _login,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 150,
-                            vertical: 16,
-                          ),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(15)),
-                          ),
-                        ),
-                        child: _isLoading
-                            ? const CircularProgressIndicator(color: Colors.white)
-                            : const Text(
-                          'Login',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        "Don’t have an account?",
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      ElevatedButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => SignupPage(),
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 142,
-                            vertical: 10,
-                          ),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(15)),
-                          ),
-                        ),
-                        child: const Text(
-                          'Sign Up',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      ElevatedButton.icon(
-                        onPressed: _isLoading ? null : _signInWithGoogle,
-                        icon: const Icon(Icons.g_mobiledata, size: 40),
-                        label: const Text(
-                          'Sign in with Google',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 69,
-                            vertical: 10,
-                          ),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(15)),
+                            ],
                           ),
                         ),
                       ),
@@ -508,8 +537,281 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
               ),
-            ),
-          ],
+              SizedBox(height: mediaQuery.size.height * 0.02),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ResetPasswordPage extends StatefulWidget {
+  final String oobCode;
+
+  const ResetPasswordPage({super.key, required this.oobCode});
+
+  @override
+  _ResetPasswordPageState createState() => _ResetPasswordPageState();
+}
+
+class _ResetPasswordPageState extends State<ResetPasswordPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _newPasswordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  bool _isNewPasswordVisible = false;
+  bool _isConfirmPasswordVisible = false;
+  bool _isLoading = false;
+
+  Future<void> _resetPassword() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      await FirebaseAuth.instance.confirmPasswordReset(
+        code: widget.oobCode,
+        newPassword: _newPasswordController.text.trim(),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password reset successfully! Please log in.'),
+          backgroundColor: Color(0xFFF97316),
+        ),
+      );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: const Color(0xFFEF4444),
+        ),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  Widget _buildTextField(
+      TextEditingController controller,
+      String label,
+      IconData icon, {
+        bool isPassword = false,
+        bool isConfirmPassword = false,
+      }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: isPassword
+          ? (isConfirmPassword ? !_isConfirmPasswordVisible : !_isNewPasswordVisible)
+          : false,
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: GoogleFonts.inter(
+          fontSize: MediaQuery.of(context).size.width * 0.035,
+          color: const Color(0xFF6B7280),
+        ),
+        prefixIcon: Icon(icon, color: const Color(0xFF6B7280)),
+        suffixIcon: isPassword
+            ? IconButton(
+          icon: Icon(
+            (isConfirmPassword ? _isConfirmPasswordVisible : _isNewPasswordVisible)
+                ? Icons.visibility_rounded
+                : Icons.visibility_off_rounded,
+            color: const Color(0xFF6B7280),
+          ),
+          onPressed: () {
+            setState(() {
+              if (isConfirmPassword) {
+                _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
+              } else {
+                _isNewPasswordVisible = !_isNewPasswordVisible;
+              }
+            });
+          },
+        )
+            : null,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF1E3A8A)),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFEF4444)),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFEF4444)),
+        ),
+        contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        errorStyle: GoogleFonts.inter(
+          fontSize: 12,
+          color: const Color(0xFFEF4444),
+        ),
+      ),
+      style: GoogleFonts.inter(fontSize: MediaQuery.of(context).size.width * 0.035),
+      autovalidateMode: AutovalidateMode.onUserInteraction,
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter $label';
+        }
+        if (isPassword && value.length < 6) {
+          return 'Password must be at least 6 characters';
+        }
+        if (isConfirmPassword && value != _newPasswordController.text) {
+          return 'Passwords do not match';
+        }
+        return null;
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              Container(
+                height: mediaQuery.size.height * 0.3,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFF1E3A8A), Color(0xFFFFFFFF)],
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.all(mediaQuery.size.width * 0.05),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Reset Password',
+                          style: GoogleFonts.inter(
+                            fontSize: mediaQuery.size.width * 0.06,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Container(
+                        padding: EdgeInsets.all(mediaQuery.size.width * 0.05),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.2),
+                                spreadRadius: 2,
+                                blurRadius: 8,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Image.asset(
+                              'lib/Assets/Group84.png',
+                              height: mediaQuery.size.width * 0.3,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: EdgeInsets.all(mediaQuery.size.width * 0.05),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.2),
+                      blurRadius: 10,
+                      spreadRadius: 10,
+                    ),
+                  ],
+                ),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Set New Password',
+                        style: GoogleFonts.inter(
+                          fontSize: mediaQuery.size.width * 0.045,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF221E22),
+                        ),
+                      ),
+                      SizedBox(height: mediaQuery.size.height * 0.02),
+                      _buildTextField(_newPasswordController, 'New Password', Icons.lock_rounded, isPassword: true),
+                      SizedBox(height: mediaQuery.size.height * 0.02),
+                      _buildTextField(
+                        _confirmPasswordController,
+                        'Confirm New Password',
+                        Icons.lock_rounded,
+                        isPassword: true,
+                        isConfirmPassword: true,
+                      ),
+                      SizedBox(height: mediaQuery.size.height * 0.02),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _resetPassword,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFF97316),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            minimumSize: const Size(double.infinity, 0),
+                          ),
+                          child: _isLoading
+                              ? const CircularProgressIndicator(color: Colors.white)
+                              : Text(
+                            'Reset Password',
+                            style: GoogleFonts.inter(
+                              fontSize: 16,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(height: mediaQuery.size.height * 0.02),
+            ],
+          ),
         ),
       ),
     );

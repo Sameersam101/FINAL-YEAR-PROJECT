@@ -148,7 +148,7 @@ class _TransactionpageState extends State<Transactionpage> {
                       pw.Text(dateStr),
                       pw.Text(title),
                       pw.Text(isSeller ? 'Seller' : (isIncome ? 'Cash In' : 'Cash Out')),
-                      pw.Text((isIncome ? '+\रु ' : '-\रु ') + amount.toStringAsFixed(2),
+                      pw.Text((isIncome ? '+\Rs ' : '-\Rs ') + amount.toStringAsFixed(2),
                           style: pw.TextStyle(color: isIncome ? PdfColors.green : PdfColors.red)),
                       pw.Text(timeStr),
                     ],
@@ -429,7 +429,7 @@ class _TransactionpageState extends State<Transactionpage> {
             case 3:
               break;
             case 4:
-              Navigator.push(context, _createRoute(const Analyticspage()));
+              Navigator.push(context, _createRoute(const AnalyticsPage()));
               break;
           }
         },

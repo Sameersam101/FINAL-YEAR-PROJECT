@@ -50,20 +50,56 @@ class AdminDashboard extends StatelessWidget {
   }
 
   Future<void> _logout(BuildContext context) async {
-    try {
-      await FirebaseAuth.instance.signOut();
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => SplashScreen()),
-            (route) => false,
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to log out: $e', style: GoogleFonts.inter(color: Colors.white)),
-          backgroundColor: const Color(0xFFEE5622), // Error: Vivid Orange
+    bool? confirmLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          'Confirm Logout',
+          style: GoogleFonts.inter(
+            fontWeight: FontWeight.bold,
+            color: const Color(0xFF05668D),
+          ),
         ),
-      );
+        content: Text(
+          'Are you sure you want to log out?',
+          style: GoogleFonts.inter(
+            color: const Color(0xFF221E22),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.inter(
+                color: const Color(0xFF05668D),
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              'Yes',
+              style: GoogleFonts.inter(
+                color: const Color(0xFFEE5622), // Vivid Orange for emphasis
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmLogout == true) {
+      try {
+        await FirebaseAuth.instance.signOut();
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => SplashScreen()),
+              (route) => false,
+        );
+      } catch (e) {
+        debugPrint('Failed to log out: $e');
+      }
     }
   }
 
@@ -552,7 +588,7 @@ class AdminDashboard extends StatelessWidget {
                       return Text(
                         value,
                         style: GoogleFonts.inter(
-                          fontSize: mediaQuery.size.width * 0.035,
+                          fontSize: mediaQuery.size.width * 0.025,
                           fontWeight: FontWeight.bold,
                           color: const Color(0xFF05668D), // Dark Gray
                         ),
